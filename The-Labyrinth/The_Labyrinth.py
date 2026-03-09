@@ -69,4 +69,5 @@ while running:
     # fps limit
     clock.tick(60)
 
+# Ukončení Hry
 pygame.quit()

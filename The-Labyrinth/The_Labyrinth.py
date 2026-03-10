@@ -69,5 +69,8 @@ while running:
     # fps limit
     clock.tick(60)
 
-# Ukončení Hry
+# Ukončení Hry přes klávesu ESC
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_ESCAPE]:
+        running = False
 pygame.quit()

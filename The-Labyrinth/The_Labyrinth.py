@@ -10,13 +10,16 @@ screen = pygame.display.set_mode((width, height), pygame.FULLSCREEN)
 pygame.display.set_caption("The Labyrinth")
 clock = pygame.time.Clock()
 
+# Font pro zobrazení souřadnic 
+font = pygame.font.SysFont(None, 30)
+
 # Kostka
 x = 100
-y = 100
+y = 100     
 size = 50
 color = (102, 94, 58)
 
-# Walls
+# Zdi
 walls = [
     pygame.Rect(300, 200, 20, 200),
     pygame.Rect(500, 100, 200, 20),
@@ -31,8 +34,6 @@ while running:
         if event.type == pygame.QUIT:
             running = False
     
-    # Vyplnění pozadí
-    screen.fill((38, 153, 83))
     
     # Získání pozice myši
     mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -45,7 +46,7 @@ while running:
         speed = 5
         new_x = x + (dx / distance) * speed
         new_y = y + (dy / distance) * speed
-        
+
         # Kontrola kolize se zdmi
         cube_rect = pygame.Rect(new_x, new_y, size, size)
         collision = False
@@ -55,14 +56,26 @@ while running:
                 break
         if not collision:
             x, y = new_x, new_y
-    
+
+    # Vyčistit obrazovku
+    screen.fill((93, 153, 37))
+
     # Nakreslení zdí
     for wall in walls:
         pygame.draw.rect(screen, (100, 100, 100), wall)
     
     # Nakreslení kostky
-    pygame.draw.rect(screen, color, (x, y, size, size))
+    pygame.draw.rect(screen, color, (int(x), int(y), size, size))
 
+    # Zobrazení souřadnic vlevo nahoře
+    player_text = f"Player: {int(x)}, {int(y)}"
+    player_surf = font.render(player_text, True, (255, 255, 255))
+    bg_width = player_surf.get_width() + 10
+    bg_height = player_surf.get_height() + 10
+    text_bg = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
+    text_bg.fill((0, 0, 0, 180))
+    screen.blit(text_bg, (10, 10))
+    screen.blit(player_surf, (15, 13))
 
     pygame.display.flip()
     

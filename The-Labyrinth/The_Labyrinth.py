@@ -110,10 +110,18 @@ while running:
     # Kolize s enemy
     if pygame.Rect(x, y, size, size).colliderect(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size)):
         player_health = max(0, player_health - 1)
-        # Reset enemy position
+        # Reset enemy position with a cooldown
         enemy_x = 650
         enemy_y = 650
         if player_health == 0:
+            dead_text = "You Died! Respawning..."
+            dead_surf = font.render(dead_text, True, (200, 0, 0))
+            dead_bg = pygame.Surface((dead_surf.get_width() + 20, dead_surf.get_height() + 20), pygame.SRCALPHA)
+            dead_bg.fill((0, 0, 0, 200))
+            screen.blit(dead_bg, ((width - dead_bg.get_width()) // 2, (height - dead_bg.get_height()) // 2))
+            screen.blit(dead_surf, ((width - dead_surf.get_width()) // 2, (height - dead_surf.get_height()) // 2 + 10))
+            pygame.display.flip()
+            pygame.time.delay(2000)
 
             # Respawn player
             player_health = 5
@@ -177,7 +185,7 @@ while running:
     screen.blit(text_bg, (10, 10))
     screen.blit(player_surf, (15, 13))
 
-    # Health display at bottom left
+    # Health display
     health_text = f"Health: {'♥' * player_health}"
     health_surf = health_font.render(health_text, True, (255, 0, 0))
     health_bg = pygame.Surface((health_surf.get_width() + 10, health_surf.get_height() + 10), pygame.SRCALPHA)

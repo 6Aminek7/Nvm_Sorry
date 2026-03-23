@@ -16,6 +16,7 @@ font = pygame.font.SysFont(None, 30)
 # Font pro health
 health_font = pygame.font.SysFont(None, 50)
 
+
 # Kostka
 x = 100
 y = 100     
@@ -29,11 +30,13 @@ enemy_size = 50
 enemy_color = (161, 163, 145)
 enemy_speed = 3
 
+
 # Player health
 player_health = 5
 
-# Scalování mapy (zvětšení)
+# Zvětšení mapy
 scale = 2.0 
+
 
 # Kamera
 zoom = 0.5 
@@ -43,6 +46,7 @@ camera_y = y - (height / 2) / zoom
 
 # Kamera se pohybuje jen když je hráč blízko okraje
 deadzone = 300 
+
 
 # Zdi
 walls = [
@@ -59,22 +63,24 @@ while running:
         if event.type == pygame.QUIT:
             running = False
     
-    
-    # Získání pozice myši v okně (screen koordináty)
+    # Myš
+
+    ## Získání pozice myši v okně
     mouse_x, mouse_y = pygame.mouse.get_pos()
 
-    # Převod pozice myši do světových souřadnic
+    ## Převod pozice myši do světových souřadnic
     world_mouse_x = camera_x + mouse_x / zoom
     world_mouse_y = camera_y + mouse_y / zoom
 
-    # Pohyb kostky směrem k myši (světové souřadnice) s kontrolou kolize
+    ## Pohyb kostky směrem k myši s kontrolou kolize
     dx = world_mouse_x - (x + size / 2)
     dy = world_mouse_y - (y + size / 2)
     distance = math.hypot(dx, dy)
     if distance > 0:
-        speed = min(5, distance)  # Omezit rychlost, aby se nepřestřelilo přes cíl
+        speed = min(5, distance)
         new_x = x + (dx / distance) * speed
         new_y = y + (dy / distance) * speed
+
 
         # Kontrola kolize se zdmi
         cube_rect = pygame.Rect(new_x, new_y, size, size)
@@ -110,7 +116,8 @@ while running:
     # Kolize s enemy
     if pygame.Rect(x, y, size, size).colliderect(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size)):
         player_health = max(0, player_health - 1)
-        # Reset enemy position with a cooldown
+
+        ## Reset enemy pozici po zásahu
         enemy_x = 650
         enemy_y = 650
         if player_health == 0:
@@ -123,6 +130,7 @@ while running:
             pygame.display.flip()
             pygame.time.delay(2000)
 
+
             # Respawn player
             player_health = 5
             x = 100
@@ -130,7 +138,7 @@ while running:
             enemy_x = 650
             enemy_y = 650
 
-    # Kamera: posouvá se jen pokud je hráč blízko okraje
+    # Kamera se posouvá jen pokud je hráč blízko kraje
     player_screen_x = (x - camera_x) * zoom
     player_screen_y = (y - camera_y) * zoom
 
@@ -152,6 +160,7 @@ while running:
     # Vyčistit obrazovku
     screen.fill((93, 153, 37))
 
+
     # Nakreslení zdí
     for wall in walls:
         draw_x = (wall.x - camera_x) * zoom
@@ -171,6 +180,7 @@ while running:
     enemy_draw_y = (enemy_y - camera_y) * zoom
     enemy_draw_size = enemy_size * zoom
     pygame.draw.rect(screen, enemy_color, (int(enemy_draw_x), int(enemy_draw_y), int(enemy_draw_size), int(enemy_draw_size)))
+
 
     # Zobrazení souřadnic vlevo nahoře
     player_text = f"Player: {int(x)}, {int(y)}"
@@ -193,6 +203,7 @@ while running:
     screen.blit(health_bg, (10, height - health_bg.get_height() - 10))
     screen.blit(health_surf, (15, height - health_surf.get_height() - 8))
 
+#
     pygame.display.flip()
     
     # fps limit

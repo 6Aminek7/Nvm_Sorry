@@ -63,7 +63,7 @@ while running:
         if event.type == pygame.QUIT:
             running = False
     
-    # Myš
+ # Myš
 
     ## Získání pozice myši v okně
     mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -102,7 +102,9 @@ while running:
         new_enemy_x = enemy_x + (dx_enemy / distance_enemy) * speed_enemy
         new_enemy_y = enemy_y + (dy_enemy / distance_enemy) * speed_enemy
 
-        # Kontrola kolize se zdmi pro enemy
+# Kolize s enemy
+
+        ## Kontrola kolize se zdmi pro enemy
         enemy_rect = pygame.Rect(new_enemy_x, new_enemy_y, enemy_size, enemy_size)
         collision_enemy = False
 
@@ -113,7 +115,7 @@ while running:
         if not collision_enemy:
             enemy_x, enemy_y = new_enemy_x, new_enemy_y
 
-    # Kolize s enemy
+    ## Kontrola kolize mezi hráčem a enemy
     if pygame.Rect(x, y, size, size).colliderect(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size)):
         player_health = max(0, player_health - 1)
 
@@ -138,7 +140,7 @@ while running:
             enemy_x = 650
             enemy_y = 650
 
-    # Kamera se posouvá jen pokud je hráč blízko kraje
+    # Kamera se posouvá jen pokud je player blízko kraje
     player_screen_x = (x - camera_x) * zoom
     player_screen_y = (y - camera_y) * zoom
 
@@ -157,7 +159,7 @@ while running:
     elif player_screen_y > bottom:
         camera_y = y - bottom / zoom
 
-    # Vyčistit obrazovku
+    # vyplnění obrazovky
     screen.fill((93, 153, 37))
 
 
@@ -196,7 +198,7 @@ while running:
     screen.blit(player_surf, (15, 13))
 
     # Health display
-    health_text = f"Health: {'♥' * player_health}"
+    health_text = f"Health: {'♥ ' * player_health}"
     health_surf = health_font.render(health_text, True, (255, 0, 0))
     health_bg = pygame.Surface((health_surf.get_width() + 10, health_surf.get_height() + 10), pygame.SRCALPHA)
     health_bg.fill((0, 0, 0, 180))

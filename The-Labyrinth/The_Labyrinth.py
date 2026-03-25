@@ -1,6 +1,7 @@
 import pygame
 import math
 import sys
+import random
 
 pygame.init()
 
@@ -17,29 +18,79 @@ font = pygame.font.SysFont(None, 30)
 health_font = pygame.font.SysFont(None, 50)
 
 
-# Kostka
-x = 100
-y = 100     
+# Mnohem větší Labyrinth Mapa (W = Zed', P = Hráč, E = Nepřítel, mezera = cesta)
+maze_layout = [
+    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+    "W P   W       W           W            W",
+    "W WWW W WWWWW W WWWWWWWWW W WWWWWWWWWW W",
+    "W W   W   W   W         W W W        W W",
+    "W W WWWWW W WWWWWWWWWWW W W W WWWWWW W W",
+    "W W     W W   W       W   W W W    W W W",
+    "W WWWWW W WWW W WWWWW WWWWW W W WW W W W",
+    "W     W W     W     W   W   W W W  W W W",
+    "WWWWW W WWWWWWWWWWW WWW W WWW W WWWW W W",
+    "W   W W           W   W W   W W      W W",
+    "W W W WWWWWWWWWWW WWW W WWW W WWWWWWWW W",
+    "W W W       W     W   W   W W W      W W",
+    "W W WWWWWWW W WWWWW WWWWW W W W WWWW W W",
+    "W W       W W W   W     W W W W W    W W",
+    "W WWWWWWW W W W W WWWWW W W W W W WWWW W",
+    "W W     W W W   W   W   W W   W W W  W W",
+    "W W WWW W W WWWWWWW W WWW WWWWW W W  W W",
+    "W   W   W W       W W   W       W    W W",
+    "WWWWWWWWW WWWWWWW W WWW WWWWWWWWWWWW W W",
+    "W       W       W W   W          W   W W",
+    "WWWWWWW WWWWWWW W WWW WWWWWWWWWW W WWW W",
+    "W     W       W W W       W      W   W W",
+    "W WWW WWWWWWW W W W WWWWW W WWWWWWWW W W",
+    "W   W       W   W   W     W          E W",
+    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+]
+
+# Player config
 size = 50
 color = (102, 94, 58)
 
-# Enemy
-enemy_x = 650
-enemy_y = 650
+# Enemy config
 enemy_size = 50
 enemy_color = (161, 163, 145)
 enemy_speed = 3
-
 
 # Player health
 player_health = 5
 
 # Zvětšení mapy
-scale = 2.0 
+scale = 4.5 
 
+block_size = int(50 * scale)
+walls = []
+
+# Default values just in case
+start_x, start_y = 100, 100
+start_enemy_x, start_enemy_y = 650, 650
+
+for row_idx, row in enumerate(maze_layout):
+    for col_idx, cell in enumerate(row):
+        rect = pygame.Rect(
+            int(col_idx * block_size), 
+            int(row_idx * block_size), 
+            block_size, 
+            block_size
+        )
+        if cell == "W":
+            walls.append(rect)
+        elif cell == "P":
+            start_x = int(col_idx * block_size + (block_size - size) / 2)
+            start_y = int(row_idx * block_size + (block_size - size) / 2)
+        elif cell == "E":
+            start_enemy_x = int(col_idx * block_size + (block_size - enemy_size) / 2)
+            start_enemy_y = int(row_idx * block_size + (block_size - enemy_size) / 2)
+
+x, y = start_x, start_y
+enemy_x, enemy_y = start_enemy_x, start_enemy_y
 
 # Kamera
-zoom = 0.5 
+zoom = 0.5
 
 camera_x = x - (width / 2) / zoom
 camera_y = y - (height / 2) / zoom
@@ -47,15 +98,6 @@ camera_y = y - (height / 2) / zoom
 # Kamera se pohybuje jen když je hráč blízko okraje
 deadzone = 300 
 
-
-# Zdi
-walls = [
-    pygame.Rect(int(300 * scale), int(200 * scale), int(20 * scale), int(200 * scale)),
-    pygame.Rect(int(500 * scale), int(100 * scale), int(200 * scale), int(20 * scale)),
-    pygame.Rect(int(100 * scale), int(400 * scale), int(20 * scale), int(200 * scale)),
-    pygame.Rect(int(700 * scale), int(300 * scale), int(20 * scale), int(200 * scale)),
-    pygame.Rect(int(200 * scale), int(500 * scale), int(300 * scale), int(20 * scale)),
-]
 
 running = True
 while running:
@@ -120,10 +162,19 @@ while running:
         player_health = max(0, player_health - 1)
 
         ## Reset enemy pozici po zásahu
-        enemy_x = 650
-        enemy_y = 650
+        enemy_x = start_enemy_x
+        enemy_y = start_enemy_y
         if player_health == 0:
-            dead_text = "You Died! Respawning..."
+            death_messages = [
+                "Death can have me, when it earns me.",
+                "Wasted!",
+                "Your adventure is done.",
+                "The Labyrinth claims another victim.",
+                "You Died",
+                "Quit the game already",
+                "You didn't survive."
+            ]
+            dead_text = random.choice(death_messages)
             dead_surf = font.render(dead_text, True, (200, 0, 0))
             dead_bg = pygame.Surface((dead_surf.get_width() + 20, dead_surf.get_height() + 20), pygame.SRCALPHA)
             dead_bg.fill((0, 0, 0, 200))
@@ -135,10 +186,10 @@ while running:
 
             # Respawn player
             player_health = 5
-            x = 100
-            y = 100
-            enemy_x = 650
-            enemy_y = 650
+            x = start_x
+            y = start_y
+            enemy_x = start_enemy_x
+            enemy_y = start_enemy_y
 
     # Kamera se posouvá jen pokud je player blízko kraje
     player_screen_x = (x - camera_x) * zoom
@@ -183,6 +234,70 @@ while running:
     enemy_draw_size = enemy_size * zoom
     pygame.draw.rect(screen, enemy_color, (int(enemy_draw_x), int(enemy_draw_y), int(enemy_draw_size), int(enemy_draw_size)))
 
+
+    # --- FOG OF WAR (Zorné pole) ---
+    vision_radius = 1200
+    ray_step = 2  # Každé 2 stupně pro dobrý výkon a tvar
+    
+    fog_surf = pygame.Surface((width, height))
+    fog_surf.fill((0, 0, 0)) # Černé pozadí zakrývající vše
+
+    player_center_world_x = x + size / 2
+    player_center_world_y = y + size / 2
+
+    polygon_points = []
+    
+    # Filtrace zdí, které jsou dostatečně blízko
+    walls_in_range = []
+    for wall in walls:
+        wall_center_x = wall.x + wall.width / 2
+        wall_center_y = wall.y + wall.height / 2
+        dist = math.hypot(player_center_world_x - wall_center_x, player_center_world_y - wall_center_y)
+        if dist < vision_radius + wall.width:
+            walls_in_range.append(wall)
+
+    for angle in range(0, 360, ray_step):
+        rad = math.radians(angle)
+        end_x = player_center_world_x + math.cos(rad) * vision_radius
+        end_y = player_center_world_y + math.sin(rad) * vision_radius
+        
+        ray_line = ((player_center_world_x, player_center_world_y), (end_x, end_y))
+        
+        closest_point = (end_x, end_y)
+        closest_dist = vision_radius
+        
+        for wall in walls_in_range:
+            clipped = wall.clipline(*ray_line)
+            if clipped:
+                point = clipped[0]
+                dist = math.hypot(point[0] - player_center_world_x, point[1] - player_center_world_y)
+                if dist < closest_dist:
+                    closest_dist = dist
+                    closest_point = point
+                    
+        # Pokud paprsek narazil do zdi, posuneme bod kousek dovnitř zdi,
+        # aby byla vidět její přední strana, ale ne zem za ní.
+        if closest_dist < vision_radius:
+            if closest_dist > 0:
+                dir_x = (closest_point[0] - player_center_world_x) / closest_dist
+                dir_y = (closest_point[1] - player_center_world_y) / closest_dist
+                push_amount = min(150, vision_radius - closest_dist)
+                closest_point = (closest_point[0] + dir_x * push_amount, closest_point[1] + dir_y * push_amount)
+
+        # Převod do souřadnic obrazovky
+        screen_p_x = (closest_point[0] - camera_x) * zoom
+        screen_p_y = (closest_point[1] - camera_y) * zoom
+        polygon_points.append((screen_p_x, screen_p_y))
+
+    if len(polygon_points) > 2:
+        pygame.draw.polygon(fog_surf, (255, 255, 255), polygon_points)
+        fog_surf.set_colorkey((255, 255, 255)) # Udělá bílou průhlednou
+        
+    # Nastavení průhlednosti mlhy (200 = tmavá, ale neúplně černá)
+    fog_surf.set_alpha(200)
+
+    screen.blit(fog_surf, (0, 0))
+    # --- KONEC FOG OF WAR ---
 
     # Zobrazení souřadnic vlevo nahoře
     player_text = f"Player: {int(x)}, {int(y)}"

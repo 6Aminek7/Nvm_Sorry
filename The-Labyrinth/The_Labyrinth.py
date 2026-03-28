@@ -18,7 +18,7 @@ font = pygame.font.SysFont(None, 30)
 health_font = pygame.font.SysFont(None, 50)
 
 
-# Mnohem větší Labyrinth Mapa (W = Zed', P = Hráč, E = Nepřítel, mezera = cesta)
+# Labyrinth Mapa (W = Zed, P = Hrač, E = enemy, mezera = cesta)
 maze_layout = [
     "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
     "W P   W       W           W            W",
@@ -49,7 +49,7 @@ maze_layout = [
 
 # Player config
 size = 50
-color = (102, 94, 58)
+color = (29, 30, 66)
 
 # Enemy config
 enemy_size = 50
@@ -65,7 +65,7 @@ scale = 4.5
 block_size = int(50 * scale)
 walls = []
 
-# Default values just in case
+# Default values
 start_x, start_y = 100, 100
 start_enemy_x, start_enemy_y = 650, 650
 
@@ -90,7 +90,7 @@ x, y = start_x, start_y
 enemy_x, enemy_y = start_enemy_x, start_enemy_y
 
 # Kamera
-zoom = 0.5
+zoom = 0.7
 
 camera_x = x - (width / 2) / zoom
 camera_y = y - (height / 2) / zoom
@@ -211,7 +211,7 @@ while running:
         camera_y = y - bottom / zoom
 
     # vyplnění obrazovky
-    screen.fill((93, 153, 37))
+    screen.fill((35, 109, 122))
 
 
     # Nakreslení zdí
@@ -275,8 +275,7 @@ while running:
                     closest_dist = dist
                     closest_point = point
                     
-        # Pokud paprsek narazil do zdi, posuneme bod kousek dovnitř zdi,
-        # aby byla vidět její přední strana, ale ne zem za ní.
+        # Když paprsek narazí do zdi, posuneme vizi kousek do zdi
         if closest_dist < vision_radius:
             if closest_dist > 0:
                 dir_x = (closest_point[0] - player_center_world_x) / closest_dist
@@ -293,7 +292,7 @@ while running:
         pygame.draw.polygon(fog_surf, (255, 255, 255), polygon_points)
         fog_surf.set_colorkey((255, 255, 255)) # Udělá bílou průhlednou
         
-    # Nastavení průhlednosti mlhy (200 = tmavá, ale neúplně černá)
+    # Nastavení průhlednosti mlhy
     fog_surf.set_alpha(200)
 
     screen.blit(fog_surf, (0, 0))

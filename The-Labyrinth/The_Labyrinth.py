@@ -2,6 +2,7 @@ import pygame
 import math
 import sys
 import random
+import os
 
 pygame.init()
 
@@ -97,6 +98,45 @@ camera_y = y - (height / 2) / zoom
 
 # Kamera se pohybuje jen když je hráč blízko okraje
 deadzone = 300 
+
+# --- Načtení textur ---
+TEXTURES_DIR = os.path.join(os.path.dirname(__file__), "textures")
+
+def get_texture(filename, default_color, size_tuple):
+    path = os.path.join(TEXTURES_DIR, filename)
+    if os.path.exists(path):
+        try:
+            img = pygame.image.load(path).convert_alpha()
+            return pygame.transform.scale(img, size_tuple)
+        except Exception as e:
+            print(f"Chyba při načítání {filename}: {e}")
+            
+    # Vytvoření fallback povrchu
+    surf = pygame.Surface(size_tuple, pygame.SRCALPHA)
+    surf.fill(default_color)
+    return surf
+
+wall_draw_size = math.ceil(block_size * zoom)
+player_draw_size = math.ceil(size * zoom)
+enemy_draw_size = math.ceil(enemy_size * zoom)
+
+# Textura pro podlahu
+floor_fallback = pygame.Surface((256, 256))
+floor_fallback.fill((35, 109, 122))
+if os.path.exists(os.path.join(TEXTURES_DIR, "floor.png")):
+    try:
+        floor_img = pygame.image.load(os.path.join(TEXTURES_DIR, "floor.png")).convert_alpha()
+        floor_texture = pygame.transform.scale(floor_img, (int(256 * zoom), int(256 * zoom)))
+    except Exception as e:
+        print(f"Error loading floor.png: {e}")
+        floor_texture = floor_fallback
+else:
+    floor_texture = floor_fallback
+
+textura_zed = get_texture("wall.png", (100, 100, 100), (wall_draw_size, wall_draw_size))
+textura_hrac = get_texture("player.png", color, (player_draw_size, player_draw_size))
+textura_nepritel = get_texture("enemy.png", enemy_color, (enemy_draw_size, enemy_draw_size))
+# --- Konec načtení textur ---
 
 
 running = True
@@ -210,29 +250,33 @@ while running:
     elif player_screen_y > bottom:
         camera_y = y - bottom / zoom
 
-    # vyplnění obrazovky
-    screen.fill((35, 109, 122))
+    # Vykreslení podlahy s texturou (tiling loop)
+    # Vyplníme pozadí pro případ, že něco ujede
+    screen.fill((20, 20, 20))
+    bg_w, bg_h = floor_texture.get_size()
+    start_floor_x = -int(camera_x * zoom) % bg_w
+    start_floor_y = -int(camera_y * zoom) % bg_h
+    
+    for fx in range(start_floor_x - bg_w, width, bg_w):
+        for fy in range(start_floor_y - bg_h, height, bg_h):
+            screen.blit(floor_texture, (fx, fy))
 
 
     # Nakreslení zdí
     for wall in walls:
-        draw_x = (wall.x - camera_x) * zoom
-        draw_y = (wall.y - camera_y) * zoom
-        draw_width = wall.width * zoom
-        draw_height = wall.height * zoom
-        pygame.draw.rect(screen, (100, 100, 100), (int(draw_x), int(draw_y), int(draw_width), int(draw_height)))
+        draw_x = int((wall.x - camera_x) * zoom)
+        draw_y = int((wall.y - camera_y) * zoom)
+        screen.blit(textura_zed, (draw_x, draw_y))
     
-    # Nakreslení kostky
-    draw_x = (x - camera_x) * zoom
-    draw_y = (y - camera_y) * zoom
-    draw_size = size * zoom
-    pygame.draw.rect(screen, color, (int(draw_x), int(draw_y), int(draw_size), int(draw_size)))
+    # Nakreslení kostky (hráče)
+    draw_x = int((x - camera_x) * zoom)
+    draw_y = int((y - camera_y) * zoom)
+    screen.blit(textura_hrac, (draw_x, draw_y))
 
     # Nakreslení enemy
-    enemy_draw_x = (enemy_x - camera_x) * zoom
-    enemy_draw_y = (enemy_y - camera_y) * zoom
-    enemy_draw_size = enemy_size * zoom
-    pygame.draw.rect(screen, enemy_color, (int(enemy_draw_x), int(enemy_draw_y), int(enemy_draw_size), int(enemy_draw_size)))
+    enemy_draw_x = int((enemy_x - camera_x) * zoom)
+    enemy_draw_y = int((enemy_y - camera_y) * zoom)
+    screen.blit(textura_nepritel, (enemy_draw_x, enemy_draw_y))
 
 
     # --- FOG OF WAR (Zorné pole) ---

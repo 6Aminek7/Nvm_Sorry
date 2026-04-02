@@ -49,7 +49,7 @@ maze_layout = [
 ]
 
 # Player config
-size = 50
+size = 80
 color = (29, 30, 66)
 
 # Enemy config
@@ -102,11 +102,13 @@ deadzone = 300
 # --- Načtení textur ---
 TEXTURES_DIR = os.path.join(os.path.dirname(__file__), "textures")
 
-def get_texture(filename, default_color, size_tuple):
+def get_texture(filename, default_color, size_tuple, pixelate_size=None):
     path = os.path.join(TEXTURES_DIR, filename)
     if os.path.exists(path):
         try:
             img = pygame.image.load(path).convert_alpha()
+            if pixelate_size:
+                img = pygame.transform.scale(img, pixelate_size)
             return pygame.transform.scale(img, size_tuple)
         except Exception as e:
             print(f"Chyba při načítání {filename}: {e}")
@@ -126,19 +128,23 @@ floor_fallback.fill((35, 109, 122))
 if os.path.exists(os.path.join(TEXTURES_DIR, "floor.png")):
     try:
         floor_img = pygame.image.load(os.path.join(TEXTURES_DIR, "floor.png")).convert_alpha()
-        floor_texture = pygame.transform.scale(floor_img, (int(256 * zoom), int(256 * zoom)))
+        # Scale down first to give it a chunky, pixelated look with "less pixels" matching the player
+        pixelated_floor = pygame.transform.scale(floor_img, (64, 64))
+        floor_texture = pygame.transform.scale(pixelated_floor, (int(256 * zoom), int(256 * zoom)))
     except Exception as e:
         print(f"Error loading floor.png: {e}")
         floor_texture = floor_fallback
 else:
     floor_texture = floor_fallback
 
-textura_zed = get_texture("wall.png", (100, 100, 100), (wall_draw_size, wall_draw_size))
+textura_zed = get_texture("wall.png", (100, 100, 100), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
 textura_hrac = get_texture("player.png", color, (player_draw_size, player_draw_size))
 textura_nepritel = get_texture("enemy.png", enemy_color, (enemy_draw_size, enemy_draw_size))
 # --- Konec načtení textur ---
 
 
+wobble_time = 0.0
+wobble_amp = 0.0
 running = True
 while running:
     for event in pygame.event.get():
@@ -158,7 +164,9 @@ while running:
     dx = world_mouse_x - (x + size / 2)
     dy = world_mouse_y - (y + size / 2)
     distance = math.hypot(dx, dy)
-    if distance > 0:
+    player_moved = False
+    
+    if distance > 1.0:
         speed = min(5, distance)
         new_x = x + (dx / distance) * speed
         new_y = y + (dy / distance) * speed
@@ -174,6 +182,15 @@ while running:
                 break
         if not collision:
             x, y = new_x, new_y
+            player_moved = True
+
+    if player_moved:
+        wobble_amp = min(1.0, wobble_amp + 0.1)
+        wobble_time += 0.15
+    else:
+        wobble_amp = max(0.0, wobble_amp - 0.1)
+        if wobble_amp > 0:
+            wobble_time += 0.30
 
     # Enemy pohyb k hráči
     dx_enemy = x - enemy_x
@@ -271,7 +288,19 @@ while running:
     # Nakreslení kostky (hráče)
     draw_x = int((x - camera_x) * zoom)
     draw_y = int((y - camera_y) * zoom)
-    screen.blit(textura_hrac, (draw_x, draw_y))
+    
+    if wobble_amp > 0:
+        wobble = math.sin(wobble_time) * 0.15 * wobble_amp
+        draw_w = int(player_draw_size * (1.0 - wobble))
+        draw_h = int(player_draw_size * (1.0 + wobble))
+        
+        scaled_textura = pygame.transform.scale(textura_hrac, (draw_w, draw_h))
+        offset_x = (player_draw_size - draw_w) // 2
+        offset_y = player_draw_size - draw_h
+        
+        screen.blit(scaled_textura, (draw_x + offset_x, draw_y + offset_y))
+    else:
+        screen.blit(textura_hrac, (draw_x, draw_y))
 
     # Nakreslení enemy
     enemy_draw_x = int((enemy_x - camera_x) * zoom)

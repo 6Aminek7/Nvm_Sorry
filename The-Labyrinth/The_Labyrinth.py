@@ -128,7 +128,8 @@ floor_fallback.fill((35, 109, 122))
 if os.path.exists(os.path.join(TEXTURES_DIR, "floor.png")):
     try:
         floor_img = pygame.image.load(os.path.join(TEXTURES_DIR, "floor.png")).convert_alpha()
-        # Scale down first to give it a chunky, pixelated look with "less pixels" matching the player
+        
+# Rozpixelování textur
         pixelated_floor = pygame.transform.scale(floor_img, (64, 64))
         floor_texture = pygame.transform.scale(pixelated_floor, (int(256 * zoom), int(256 * zoom)))
     except Exception as e:
@@ -150,6 +151,49 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+
+# Esc - Pause screen
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                paused = True
+                pause_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+                pause_surf.fill((0, 0, 0, 180))
+                
+                pause_font = pygame.font.SysFont(None, 100)
+                small_font = pygame.font.SysFont(None, 50)
+                
+                pause_text = pause_font.render("PAUSED", True, (255, 255, 255))
+                resume_text = small_font.render("Press ESC to Resume", True, (200, 200, 200))
+                quit_text = small_font.render("Press Q to Quit", True, (200, 200, 200))
+                
+                bg_copy = screen.copy()
+                
+                while paused:
+                    for p_event in pygame.event.get():
+                        if p_event.type == pygame.QUIT:
+                            running = False
+                            paused = False
+                        if p_event.type == pygame.KEYDOWN:
+                            if p_event.key == pygame.K_ESCAPE:
+                                paused = False
+                            if p_event.key == pygame.K_q:
+                                running = False
+                                paused = False
+                    
+                    if not running:
+                        break
+                    
+                    screen.blit(bg_copy, (0, 0))
+                    screen.blit(pause_surf, (0, 0))
+                    screen.blit(pause_text, (width // 2 - pause_text.get_width() // 2, height // 2 - 100))
+                    screen.blit(resume_text, (width // 2 - resume_text.get_width() // 2, height // 2 + 20))
+                    screen.blit(quit_text, (width // 2 - quit_text.get_width() // 2, height // 2 + 80))
+                    
+                    pygame.display.flip()
+                    clock.tick(60)
+            
+    if not running:
+        break
     
  # Myš
 
@@ -398,8 +442,4 @@ while running:
     # fps limit
     clock.tick(60)
 
-# Ukončení Hry přes klávesu ESC
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_ESCAPE]:
-        running = False
 pygame.quit()

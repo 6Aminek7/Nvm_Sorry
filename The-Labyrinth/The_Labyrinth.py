@@ -21,31 +21,37 @@ health_font = pygame.font.SysFont(None, 50)
 
 # Labyrinth Mapa (W = Zed, P = Hrač, E = enemy, mezera = cesta)
 maze_layout = [
-    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
-    "W P   W       W           W            W",
-    "W WWW W WWWWW W WWWWWWWWW W WWWWWWWWWW W",
-    "W W   W   W   W         W W W        W W",
-    "W W WWWWW W WWWWWWWWWWW W W W WWWWWW W W",
-    "W W     W W   W       W   W W W    W W W",
-    "W WWWWW W WWW W WWWWW WWWWW W W WW W W W",
-    "W     W W     W     W   W   W W W  W W W",
-    "WWWWW W WWWWWWWWWWW WWW W WWW W WWWW W W",
-    "W   W W           W   W W   W W      W W",
-    "W W W WWWWWWWWWWW WWW W WWW W WWWWWWWW W",
-    "W W W       W     W   W   W W W      W W",
-    "W W WWWWWWW W WWWWW WWWWW W W W WWWW W W",
-    "W W       W W W   W     W W W W W    W W",
-    "W WWWWWWW W W W W WWWWW W W W W W WWWW W",
-    "W W     W W W   W   W   W W   W W W  W W",
-    "W W WWW W W WWWWWWW W WWW WWWWW W W  W W",
-    "W   W   W W       W W   W       W    W W",
-    "WWWWWWWWW WWWWWWW W WWW WWWWWWWWWWWW W W",
-    "W       W       W W   W          W   W W",
-    "WWWWWWW WWWWWWW W WWW WWWWWWWWWW W WWW W",
-    "W     W       W W W       W      W   W W",
-    "W WWW WWWWWWW W W W WWWWW W WWWWWWWW W W",
-    "W   W       W   W   W     W          E W",
-    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+    "W       W         W               W                        W",
+    "W WWWWW W WWWWWWW W WWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWWWWW W",
+    "W     W W       W W             W W                      W W",
+    "WWWWW W WWWWWWW W WWWWW WWWWWWW W WWWWWWWWWWWWWWW WWWWWW W W",
+    "W     W       W W     W W     W W               W W    W W W",
+    "W WWWWWWWWWWW W WWWWW W W WWW W WWWWWWWWWWWWWWW W W WW W W W",
+    "W           W W     W W W W   W       W       W W W  W W W W",
+    "WWWWWWWWWWW W WWWWW WWW W WWWWWWWWWWW W WWWWW W W WWWW W W W",
+    "W         W W           W       W   W W     W W W      W W W",
+    "W WWWWWWW W WWWWWWWWWWWWW WWWWW W WWW W WWW W W WWWWWWWW W W",
+    "W       W W       W       W   W       W   W W W          W W",
+    "WWWWWWW W WWWWWWW W WWWWWWW W WWWWWWWWWWW W W W WWWWWWWWWW W",
+    "W     W W W       W W       W           W W W W W        W W",
+    "W WWW W W W WWWWW W W WWWWWWWWWWWWWWWWW W W W W W WWWWWW W W",
+    "W   W W W W     W W W W                 W W   W W W    W W W",
+    "W WWW W W WWWWW W W W W                 W WWWWW W WWWW W W W",
+    "W   W W W       W W W W      P    E     W       W W    W W W",
+    "WWWWW W WWWWWWWWW W W W                 W W WWWWW W WWWW W W",
+    "W     W           W W W                 W W W     W      W W",
+    "W WWWWWWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWW W W WWWWW WWWWWW W",
+    "W                 W W                     W W W          W W",
+    "W WWWWWWWWWWWWWWW W W WWWWWWWWWWWWWWWWWWW W W W WWWWWWWW W W",
+    "W W             W W W W                   W W W W      W   W",
+    "W W WWWWWWWWWWW W W W W WWWWWWWWWWWWWWWWW W W W W WWWW W W W",
+    "W W           W W W W W                 W W W W W    W W W W",
+    "W WWWWWWWWWWW W W W W W WWWWWWWWWWWWWWW W W W W WWWW W W W W",
+    "W             W W W   W                 W   W        W   W W",
+    "WWWWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW W",
+    "W                                                          W",
+    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
 ]
 
 # Player config
@@ -137,6 +143,13 @@ if os.path.exists(os.path.join(TEXTURES_DIR, "floor.png")):
         floor_texture = floor_fallback
 else:
     floor_texture = floor_fallback
+
+floor_variations = [
+    floor_texture,
+    pygame.transform.flip(floor_texture, True, False),
+    pygame.transform.flip(floor_texture, False, True),
+    pygame.transform.flip(floor_texture, True, True)
+]
 
 textura_zed = get_texture("wall.png", (100, 100, 100), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
 textura_hrac = get_texture("player.png", color, (player_draw_size, player_draw_size))
@@ -320,7 +333,10 @@ while running:
     
     for fx in range(start_floor_x - bg_w, width, bg_w):
         for fy in range(start_floor_y - bg_h, height, bg_h):
-            screen.blit(floor_texture, (fx, fy))
+            tile_x = int((camera_x * zoom + fx) // bg_w)
+            tile_y = int((camera_y * zoom + fy) // bg_h)
+            var_index = (tile_x * 374761393 ^ tile_y * 668265263) % len(floor_variations)
+            screen.blit(floor_variations[var_index], (fx, fy))
 
 
     # Nakreslení zdí

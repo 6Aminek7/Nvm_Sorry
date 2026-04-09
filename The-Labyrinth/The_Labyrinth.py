@@ -21,21 +21,21 @@ health_font = pygame.font.SysFont(None, 50)
 
 # Labyrinth Mapa (W = Zed, P = Hrač, E = enemy, mezera = cesta)
 maze_layout = [
-    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWLWWWWWWWWWWWWWWWWWWWWWWWWWW",
     "W       W         W               W                        W",
     "W WWWWW W WWWWWWW W WWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWWWWW W",
     "W     W W       W W             W W                      W W",
     "WWWWW W WWWWWWW W WWWWW WWWWWWW W WWWWWWWWWWWWWWW WWWWWW W W",
     "W     W       W W     W W     W W               W W    W W W",
-    "W WWWWWWWWWWW W WWWWW W W WWW W WWWWWWWWWWWWWWW W W WW W W W",
+    "W WWWWWWWWWWW W WWWWW W W WWW W W WWWWWWWWWWWWW W W WW W W W",
     "W           W W     W W W W   W       W       W W W  W W W W",
-    "WWWWWWWWWWW W WWWWW WWW W WWWWWWWWWWW W WWWWW W W WWWW W W W",
+    "WWWWWWWWWWW W WWWWW WWW W WWWWWWW WWW W WWWWW W W WWWW W W W",
     "W         W W           W       W   W W     W W W      W W W",
     "W WWWWWWW W WWWWWWWWWWWWW WWWWW W WWW W WWW W W WWWWWWWW W W",
     "W       W W       W       W   W       W   W W W          W W",
-    "WWWWWWW W WWWWWWW W WWWWWWW W WWWWWWWWWWW W W W WWWWWWWWWW W",
+    "WWWWWWW W WWWWWWW W WWWWWWW W WWW WWWWWWW W W W WWWWWWWWWW W",
     "W     W W W       W W       W           W W W W W        W W",
-    "W WWW W W W WWWWW W W WWWWWWWWWWWWWWWWW W W W W W WWWWWW W W",
+    "W WWW W W W WWWWW W W WWWWWWWWWWW WWWWW W W W W W WWWWWW W W",
     "W   W W W W     W W W W                 W W   W W W    W W W",
     "W WWW W W WWWWW W W W W                 W WWWWW W WWWW W W W",
     "W   W W W       W W W W      P    E     W       W W    W W W",
@@ -71,6 +71,10 @@ scale = 4.5
 
 block_size = int(50 * scale)
 walls = []
+locked_walls = []
+
+inventory = ["Key"]
+inventory_open = False
 
 # Default values
 start_x, start_y = 100, 100
@@ -86,6 +90,8 @@ for row_idx, row in enumerate(maze_layout):
         )
         if cell == "W":
             walls.append(rect)
+        elif cell == "L":
+            locked_walls.append(rect)
         elif cell == "P":
             start_x = int(col_idx * block_size + (block_size - size) / 2)
             start_y = int(row_idx * block_size + (block_size - size) / 2)
@@ -152,8 +158,10 @@ floor_variations = [
 ]
 
 textura_zed = get_texture("wall.png", (100, 100, 100), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
+textura_zamcena_zed = get_texture("locked_wall.png", (139, 69, 19), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
 textura_hrac = get_texture("player.png", color, (player_draw_size, player_draw_size))
 textura_nepritel = get_texture("enemy.png", enemy_color, (enemy_draw_size, enemy_draw_size))
+textura_klic_icon = get_texture("key.png", (255, 215, 0), (50, 50))
 # --- Konec načtení textur ---
 
 
@@ -165,8 +173,50 @@ while running:
         if event.type == pygame.QUIT:
             running = False
 
-# Esc - Pause screen
+# Esc - Pause screen & Inventory screen ("B")
         if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_b:
+                inventory_open = True
+                inv_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+                inv_surf.fill((0, 0, 0, 230))
+                
+                inv_font = pygame.font.SysFont(None, 100)
+                item_font = pygame.font.SysFont(None, 50)
+                
+                bg_copy = screen.copy()
+                
+                while inventory_open:
+                    for i_event in pygame.event.get():
+                        if i_event.type == pygame.QUIT:
+                            running = False
+                            inventory_open = False
+                        if i_event.type == pygame.KEYDOWN:
+                            if i_event.key == pygame.K_b or i_event.key == pygame.K_ESCAPE:
+                                inventory_open = False
+                    
+                    if not running:
+                        break
+                    
+                    screen.blit(bg_copy, (0, 0))
+                    screen.blit(inv_surf, (0, 0))
+                    
+                    title = inv_font.render("INVENTORY", True, (255, 255, 255))
+                    screen.blit(title, (width // 2 - title.get_width() // 2, 100))
+                    
+                    start_y = 250
+                    for i, item in enumerate(inventory):
+                        if item == "Key":
+                            text = item_font.render("- Key (Opens the End Door)", True, (255, 215, 0))
+                            screen.blit(text, (width // 2 - 150, start_y + i * 80))
+                            screen.blit(textura_klic_icon, (width // 2 - 220, start_y + i * 80 - 10))
+                    
+                    if len(inventory) == 0:
+                        empty_text = item_font.render("Your inventory is empty...", True, (150, 150, 150))
+                        screen.blit(empty_text, (width // 2 - empty_text.get_width() // 2, start_y))
+                        
+                    pygame.display.flip()
+                    clock.tick(60)
+
             if event.key == pygame.K_ESCAPE:
                 paused = True
                 pause_surf = pygame.Surface((width, height), pygame.SRCALPHA)
@@ -237,6 +287,24 @@ while running:
             if cube_rect.colliderect(wall):
                 collision = True
                 break
+                
+        for l_wall in locked_walls:
+            if cube_rect.colliderect(l_wall):
+                if "Key" in inventory:
+                    win_font = pygame.font.SysFont(None, 100)
+                    win_text = win_font.render("YOU ESCAPED", True, (255, 215, 0))
+                    win_bg = pygame.Surface((width, height), pygame.SRCALPHA)
+                    win_bg.fill((0, 0, 0, 220))
+                    screen.blit(win_bg, (0, 0))
+                    screen.blit(win_text, (width // 2 - win_text.get_width() // 2, height // 2 - 50))
+                    pygame.display.flip()
+                    pygame.time.delay(4000)
+                    running = False
+                    collision = True
+                else:
+                    collision = True
+                break
+
         if not collision:
             x, y = new_x, new_y
             player_moved = True
@@ -264,7 +332,7 @@ while running:
         enemy_rect = pygame.Rect(new_enemy_x, new_enemy_y, enemy_size, enemy_size)
         collision_enemy = False
 
-        for wall in walls:
+        for wall in walls + locked_walls:
             if enemy_rect.colliderect(wall):
                 collision_enemy = True
                 break
@@ -344,6 +412,12 @@ while running:
         draw_x = int((wall.x - camera_x) * zoom)
         draw_y = int((wall.y - camera_y) * zoom)
         screen.blit(textura_zed, (draw_x, draw_y))
+
+    # Nakreslení zamčených zdí
+    for l_wall in locked_walls:
+        draw_x = int((l_wall.x - camera_x) * zoom)
+        draw_y = int((l_wall.y - camera_y) * zoom)
+        screen.blit(textura_zamcena_zed, (draw_x, draw_y))
     
     # Nakreslení kostky (hráče)
     draw_x = int((x - camera_x) * zoom)
@@ -382,7 +456,7 @@ while running:
     
     # Filtrace zdí, které jsou dostatečně blízko
     walls_in_range = []
-    for wall in walls:
+    for wall in walls + locked_walls:
         wall_center_x = wall.x + wall.width / 2
         wall_center_y = wall.y + wall.height / 2
         dist = math.hypot(player_center_world_x - wall_center_x, player_center_world_y - wall_center_y)
@@ -456,6 +530,6 @@ while running:
     pygame.display.flip()
     
     # fps limit
-    clock.tick(60)
+    clock.tick(120)
 
 pygame.quit()

@@ -18,6 +18,8 @@ font = pygame.font.SysFont(None, 30)
 # Font pro health
 health_font = pygame.font.SysFont(None, 50)
 
+# Font pro death screen
+dead_font = pygame.font.SysFont(None, 100)
 
 # Labyrinth Mapa (W = Zed, P = Hrač, E = enemy, mezera = cesta)
 maze_layout = [
@@ -56,6 +58,8 @@ maze_layout = [
 
 # Player config
 size = 80
+hitbox_size = 60
+hitbox_offset = (size - hitbox_size) / 2
 color = (29, 30, 66)
 
 # Enemy config
@@ -280,7 +284,7 @@ while running:
 
 
         # Kontrola kolize se zdmi
-        cube_rect = pygame.Rect(new_x, new_y, size, size)
+        cube_rect = pygame.Rect(new_x + hitbox_offset, new_y + hitbox_offset, hitbox_size, hitbox_size)
         collision = False
 
         for wall in walls:
@@ -340,7 +344,7 @@ while running:
             enemy_x, enemy_y = new_enemy_x, new_enemy_y
 
     ## Kontrola kolize mezi hráčem a enemy
-    if pygame.Rect(x, y, size, size).colliderect(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size)):
+    if pygame.Rect(x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size).colliderect(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size)):
         player_health = max(0, player_health - 1)
 
         ## Reset enemy pozici po zásahu
@@ -357,11 +361,11 @@ while running:
                 "You didn't survive."
             ]
             dead_text = random.choice(death_messages)
-            dead_surf = font.render(dead_text, True, (200, 0, 0))
-            dead_bg = pygame.Surface((dead_surf.get_width() + 20, dead_surf.get_height() + 20), pygame.SRCALPHA)
-            dead_bg.fill((0, 0, 0, 200))
-            screen.blit(dead_bg, ((width - dead_bg.get_width()) // 2, (height - dead_bg.get_height()) // 2))
-            screen.blit(dead_surf, ((width - dead_surf.get_width()) // 2, (height - dead_surf.get_height()) // 2 + 10))
+            dead_surf = dead_font.render(dead_text, True, (200, 0, 0))
+            dead_bg = pygame.Surface((width, height), pygame.SRCALPHA)
+            dead_bg.fill((0, 0, 0, 220))
+            screen.blit(dead_bg, (0, 0))
+            screen.blit(dead_surf, ((width - dead_surf.get_width()) // 2, (height - dead_surf.get_height()) // 2))
             pygame.display.flip()
             pygame.time.delay(2000)
 

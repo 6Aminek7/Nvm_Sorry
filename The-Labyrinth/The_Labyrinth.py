@@ -12,7 +12,7 @@ screen = pygame.display.set_mode((width, height), pygame.FULLSCREEN)
 pygame.display.set_caption("The Labyrinth")
 clock = pygame.time.Clock()
 
-# Font pro zobrazení souřadnic 
+# Font pro zobrazení souřadnic
 font = pygame.font.SysFont(None, 30)
 
 # Font pro health
@@ -166,6 +166,8 @@ textura_zamcena_zed = get_texture("locked_wall.png", (139, 69, 19), (wall_draw_s
 textura_hrac = get_texture("player.png", color, (player_draw_size, player_draw_size))
 textura_nepritel = get_texture("enemy.png", enemy_color, (enemy_draw_size, enemy_draw_size))
 textura_klic_icon = get_texture("key.png", (255, 215, 0), (50, 50))
+textura_slime_orb = get_texture("slime_orb.png", (0, 188, 212), (30, 30))
+textura_slime_orb_eyes = get_texture("slime_orb_eyes.png", (33, 150, 243), (50, 50))
 # --- Konec načtení textur ---
 
 
@@ -523,12 +525,41 @@ while running:
     screen.blit(player_surf, (15, 13))
 
     # Health display
-    health_text = f"Health: {'♥ ' * player_health}"
-    health_surf = health_font.render(health_text, True, (255, 0, 0))
-    health_bg = pygame.Surface((health_surf.get_width() + 10, health_surf.get_height() + 10), pygame.SRCALPHA)
+    orb_spacing = 35
+    icon_width = 50
+    padding = 10
+    total_health_width = icon_width + padding + (player_health * orb_spacing) if player_health > 0 else icon_width
+    bg_width = total_health_width + padding * 2
+    bg_height = 50 + padding * 2
+    
+    health_bg = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
     health_bg.fill((0, 0, 0, 180))
-    screen.blit(health_bg, (10, height - health_bg.get_height() - 10))
-    screen.blit(health_surf, (15, height - health_surf.get_height() - 8))
+    health_bg_y = height - bg_height - 10
+    
+    screen.blit(health_bg, (10, health_bg_y))
+
+    # Base "Text" replacement - Slime orb with eyes
+    screen.blit(textura_slime_orb_eyes, (10 + padding, health_bg_y + padding))
+
+    # Animated Slime Orbs
+    current_time = pygame.time.get_ticks() / 1000.0
+    for i in range(player_health):
+        anim_time = current_time * 5 + (i * 0.8) 
+        squish = math.sin(anim_time) * 0.15 
+        
+        orb_w = max(1, int(30 * (1.0 + squish)))
+        orb_h = max(1, int(30 * (1.0 - squish)))
+        
+        scaled_orb = pygame.transform.scale(textura_slime_orb, (orb_w, orb_h))
+        
+        offset_x = (30 - orb_w) // 2
+        offset_y = (30 - orb_h) // 2
+        bob_y = math.cos(anim_time) * 4
+        
+        draw_x = 10 + padding + icon_width + padding + (i * orb_spacing) + offset_x
+        draw_y = health_bg_y + padding + 10 + bob_y + offset_y
+        
+        screen.blit(scaled_orb, (draw_x, draw_y))
 
 #
     pygame.display.flip()

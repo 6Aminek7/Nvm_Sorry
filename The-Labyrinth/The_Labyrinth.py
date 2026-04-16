@@ -281,22 +281,22 @@ while running:
     
     if distance > 1.0:
         speed = min(5, distance)
-        new_x = x + (dx / distance) * speed
-        new_y = y + (dy / distance) * speed
+        move_x = (dx / distance) * speed
+        move_y = (dy / distance) * speed
 
-
-        # Kontrola kolize se zdmi
-        cube_rect = pygame.Rect(new_x + hitbox_offset, new_y + hitbox_offset, hitbox_size, hitbox_size)
-        collision = False
+        # Pohyb a kolize v ose X
+        new_x = x + move_x
+        cube_rect_x = pygame.Rect(new_x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size)
+        collision_x = False
 
         for wall in walls:
-            if cube_rect.colliderect(wall):
-                collision = True
+            if cube_rect_x.colliderect(wall):
+                collision_x = True
                 break
                 
         for l_wall in locked_walls:
-            if cube_rect.colliderect(l_wall):
-                if "Key" in inventory:
+            if cube_rect_x.colliderect(l_wall):
+                if "Key" in inventory and running:
                     win_font = pygame.font.SysFont(None, 100)
                     win_text = win_font.render("YOU ESCAPED", True, (255, 215, 0))
                     win_bg = pygame.Surface((width, height), pygame.SRCALPHA)
@@ -306,13 +306,40 @@ while running:
                     pygame.display.flip()
                     pygame.time.delay(4000)
                     running = False
-                    collision = True
-                else:
-                    collision = True
+                collision_x = True
                 break
 
-        if not collision:
-            x, y = new_x, new_y
+        if not collision_x:
+            x = new_x
+            player_moved = True
+
+        # Pohyb a kolize v ose Y
+        new_y = y + move_y
+        cube_rect_y = pygame.Rect(x + hitbox_offset, new_y + hitbox_offset, hitbox_size, hitbox_size)
+        collision_y = False
+
+        for wall in walls:
+            if cube_rect_y.colliderect(wall):
+                collision_y = True
+                break
+                
+        for l_wall in locked_walls:
+            if cube_rect_y.colliderect(l_wall):
+                if "Key" in inventory and running:
+                    win_font = pygame.font.SysFont(None, 100)
+                    win_text = win_font.render("YOU ESCAPED", True, (255, 215, 0))
+                    win_bg = pygame.Surface((width, height), pygame.SRCALPHA)
+                    win_bg.fill((0, 0, 0, 220))
+                    screen.blit(win_bg, (0, 0))
+                    screen.blit(win_text, (width // 2 - win_text.get_width() // 2, height // 2 - 50))
+                    pygame.display.flip()
+                    pygame.time.delay(4000)
+                    running = False
+                collision_y = True
+                break
+
+        if not collision_y:
+            y = new_y
             player_moved = True
 
     if player_moved:
@@ -329,21 +356,32 @@ while running:
     distance_enemy = math.hypot(dx_enemy, dy_enemy)
     if distance_enemy > 0:
         speed_enemy = min(enemy_speed, distance_enemy)
-        new_enemy_x = enemy_x + (dx_enemy / distance_enemy) * speed_enemy
-        new_enemy_y = enemy_y + (dy_enemy / distance_enemy) * speed_enemy
+        move_x_enemy = (dx_enemy / distance_enemy) * speed_enemy
+        move_y_enemy = (dy_enemy / distance_enemy) * speed_enemy
 
-# Kolize s enemy
-
-        ## Kontrola kolize se zdmi pro enemy
-        enemy_rect = pygame.Rect(new_enemy_x, new_enemy_y, enemy_size, enemy_size)
-        collision_enemy = False
+        # Osa X
+        new_enemy_x = enemy_x + move_x_enemy
+        enemy_rect_x = pygame.Rect(new_enemy_x, enemy_y, enemy_size, enemy_size)
+        collision_enemy_x = False
 
         for wall in walls + locked_walls:
-            if enemy_rect.colliderect(wall):
-                collision_enemy = True
+            if enemy_rect_x.colliderect(wall):
+                collision_enemy_x = True
                 break
-        if not collision_enemy:
-            enemy_x, enemy_y = new_enemy_x, new_enemy_y
+        if not collision_enemy_x:
+            enemy_x = new_enemy_x
+
+        # Osa Y
+        new_enemy_y = enemy_y + move_y_enemy
+        enemy_rect_y = pygame.Rect(enemy_x, new_enemy_y, enemy_size, enemy_size)
+        collision_enemy_y = False
+
+        for wall in walls + locked_walls:
+            if enemy_rect_y.colliderect(wall):
+                collision_enemy_y = True
+                break
+        if not collision_enemy_y:
+            enemy_y = new_enemy_y
 
     ## Kontrola kolize mezi hráčem a enemy
     if pygame.Rect(x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size).colliderect(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size)):
@@ -363,7 +401,7 @@ while running:
                 "You didn't survive."
             ]
             dead_text = random.choice(death_messages)
-            dead_surf = dead_font.render(dead_text, True, (200, 0, 0))
+            dead_surf = dead_font.render(dead_text, True, (115, 110, 110))
             dead_bg = pygame.Surface((width, height), pygame.SRCALPHA)
             dead_bg.fill((0, 0, 0, 220))
             screen.blit(dead_bg, (0, 0))
@@ -442,14 +480,45 @@ while running:
     else:
         screen.blit(textura_hrac, (draw_x, draw_y))
 
+    # --- Zjištění viditelnosti pro enemy ---
+    vision_radius = 2000
+    player_center_world_x = x + size / 2
+    player_center_world_y = y + size / 2
+    enemy_center_world_x = enemy_x + enemy_size / 2
+    enemy_center_world_y = enemy_y + enemy_size / 2
+
+    enemy_visible = False
+    dist_to_enemy = math.hypot(player_center_world_x - enemy_center_world_x, player_center_world_y - enemy_center_world_y)
+    
+    if dist_to_enemy <= vision_radius:
+        check_points = [
+            (enemy_center_world_x, enemy_center_world_y),
+            (enemy_x, enemy_y),
+            (enemy_x + enemy_size, enemy_y),
+            (enemy_x, enemy_y + enemy_size),
+            (enemy_x + enemy_size, enemy_y + enemy_size)
+        ]
+        
+        for pt in check_points:
+            los_line = ((player_center_world_x, player_center_world_y), pt)
+            pt_visible = True
+            for wall in walls + locked_walls:
+                if wall.clipline(*los_line):
+                    pt_visible = False
+                    break
+            
+            if pt_visible:
+                enemy_visible = True
+                break
+
     # Nakreslení enemy
-    enemy_draw_x = int((enemy_x - camera_x) * zoom)
-    enemy_draw_y = int((enemy_y - camera_y) * zoom)
-    screen.blit(textura_nepritel, (enemy_draw_x, enemy_draw_y))
+    if enemy_visible:
+        enemy_draw_x = int((enemy_x - camera_x) * zoom)
+        enemy_draw_y = int((enemy_y - camera_y) * zoom)
+        screen.blit(textura_nepritel, (enemy_draw_x, enemy_draw_y))
 
 
     # --- FOG OF WAR (Zorné pole) ---
-    vision_radius = 1200
     ray_step = 2  # Každé 2 stupně pro dobrý výkon a tvar
     
     fog_surf = pygame.Surface((width, height))

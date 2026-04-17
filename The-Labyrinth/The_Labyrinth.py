@@ -173,6 +173,7 @@ textura_slime_orb_eyes = get_texture("slime_orb_eyes.png", (33, 150, 243), (50, 
 
 wobble_time = 0.0
 wobble_amp = 0.0
+particles = []
 running = True
 while running:
     for event in pygame.event.get():
@@ -212,7 +213,7 @@ while running:
                     start_y = 250
                     for i, item in enumerate(inventory):
                         if item == "Key":
-                            text = item_font.render("- Key (Opens the End Door)", True, (255, 215, 0))
+                            text = item_font.render("- Golden Key", True, (255, 215, 0))
                             screen.blit(text, (width // 2 - 150, start_y + i * 80))
                             screen.blit(textura_klic_icon, (width // 2 - 220, start_y + i * 80 - 10))
                     
@@ -287,15 +288,10 @@ while running:
         # Pohyb a kolize v ose X
         new_x = x + move_x
         cube_rect_x = pygame.Rect(new_x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size)
-        collision_x = False
-
-        for wall in walls:
-            if cube_rect_x.colliderect(wall):
-                collision_x = True
-                break
+        collision_x = cube_rect_x.collidelist(walls) != -1
                 
-        for l_wall in locked_walls:
-            if cube_rect_x.colliderect(l_wall):
+        if not collision_x:
+            if cube_rect_x.collidelist(locked_walls) != -1:
                 if "Key" in inventory and running:
                     win_font = pygame.font.SysFont(None, 100)
                     win_text = win_font.render("YOU ESCAPED", True, (255, 215, 0))
@@ -307,7 +303,6 @@ while running:
                     pygame.time.delay(4000)
                     running = False
                 collision_x = True
-                break
 
         if not collision_x:
             x = new_x
@@ -316,15 +311,10 @@ while running:
         # Pohyb a kolize v ose Y
         new_y = y + move_y
         cube_rect_y = pygame.Rect(x + hitbox_offset, new_y + hitbox_offset, hitbox_size, hitbox_size)
-        collision_y = False
-
-        for wall in walls:
-            if cube_rect_y.colliderect(wall):
-                collision_y = True
-                break
+        collision_y = cube_rect_y.collidelist(walls) != -1
                 
-        for l_wall in locked_walls:
-            if cube_rect_y.colliderect(l_wall):
+        if not collision_y:
+            if cube_rect_y.collidelist(locked_walls) != -1:
                 if "Key" in inventory and running:
                     win_font = pygame.font.SysFont(None, 100)
                     win_text = win_font.render("YOU ESCAPED", True, (255, 215, 0))
@@ -336,7 +326,6 @@ while running:
                     pygame.time.delay(4000)
                     running = False
                 collision_y = True
-                break
 
         if not collision_y:
             y = new_y
@@ -345,6 +334,17 @@ while running:
     if player_moved:
         wobble_amp = min(1.0, wobble_amp + 0.1)
         wobble_time += 0.15
+        
+        for _ in range(random.randint(1, 2)):
+            particles.append({
+                'x': x + size / 2 + random.uniform(-size / 3, size / 3),
+                'y': y + size / 2 + random.uniform(-size / 3, size / 3),
+                'radius': random.uniform(3, 7),
+                'color': (random.randint(0, 50), random.randint(150, 220), random.randint(220, 255)),
+                'life': random.randint(10, 20),
+                'dx': random.uniform(-0.5, 0.5),
+                'dy': random.uniform(-1.0, 0)
+            })
     else:
         wobble_amp = max(0.0, wobble_amp - 0.1)
         if wobble_amp > 0:
@@ -362,24 +362,17 @@ while running:
         # Osa X
         new_enemy_x = enemy_x + move_x_enemy
         enemy_rect_x = pygame.Rect(new_enemy_x, enemy_y, enemy_size, enemy_size)
-        collision_enemy_x = False
-
-        for wall in walls + locked_walls:
-            if enemy_rect_x.colliderect(wall):
-                collision_enemy_x = True
-                break
+        collision_enemy_x = enemy_rect_x.collidelist(walls) != -1 or enemy_rect_x.collidelist(locked_walls) != -1
+        
         if not collision_enemy_x:
             enemy_x = new_enemy_x
 
         # Osa Y
         new_enemy_y = enemy_y + move_y_enemy
         enemy_rect_y = pygame.Rect(enemy_x, new_enemy_y, enemy_size, enemy_size)
-        collision_enemy_y = False
-
-        for wall in walls + locked_walls:
-            if enemy_rect_y.colliderect(wall):
-                collision_enemy_y = True
-                break
+        
+        collision_enemy_y = enemy_rect_y.collidelist(walls) != -1 or enemy_rect_y.collidelist(locked_walls) != -1
+        
         if not collision_enemy_y:
             enemy_y = new_enemy_y
 
@@ -451,18 +444,36 @@ while running:
             screen.blit(floor_variations[var_index], (fx, fy))
 
 
-    # Nakreslení zdí
+    # Nakreslení zdí a culling
     for wall in walls:
         draw_x = int((wall.x - camera_x) * zoom)
         draw_y = int((wall.y - camera_y) * zoom)
-        screen.blit(textura_zed, (draw_x, draw_y))
+        if -wall_draw_size <= draw_x <= width and -wall_draw_size <= draw_y <= height:
+            screen.blit(textura_zed, (draw_x, draw_y))
 
     # Nakreslení zamčených zdí
     for l_wall in locked_walls:
         draw_x = int((l_wall.x - camera_x) * zoom)
         draw_y = int((l_wall.y - camera_y) * zoom)
-        screen.blit(textura_zamcena_zed, (draw_x, draw_y))
+        if -wall_draw_size <= draw_x <= width and -wall_draw_size <= draw_y <= height:
+            screen.blit(textura_zamcena_zed, (draw_x, draw_y))
     
+    # Update a vykreslení částic
+    active_particles = []
+    for p in particles:
+        p['x'] += p['dx']
+        p['y'] += p['dy']
+        p['life'] -= 0.5
+        p['radius'] -= 0.15
+        if p['life'] > 0 and p['radius'] > 0:
+            active_particles.append(p)
+            
+            p_draw_x = int((p['x'] - camera_x) * zoom)
+            p_draw_y = int((p['y'] - camera_y) * zoom)
+            p_draw_radius = max(1, int(p['radius'] * zoom))
+            pygame.draw.circle(screen, p['color'], (p_draw_x, p_draw_y), p_draw_radius)
+    particles = active_particles
+
     # Nakreslení kostky (hráče)
     draw_x = int((x - camera_x) * zoom)
     draw_y = int((y - camera_y) * zoom)
@@ -491,6 +502,13 @@ while running:
     dist_to_enemy = math.hypot(player_center_world_x - enemy_center_world_x, player_center_world_y - enemy_center_world_y)
     
     if dist_to_enemy <= vision_radius:
+        los_rect = pygame.Rect(min(player_center_world_x, enemy_center_world_x), 
+                               min(player_center_world_y, enemy_center_world_y), 
+                               abs(player_center_world_x - enemy_center_world_x), 
+                               abs(player_center_world_y - enemy_center_world_y))
+        los_rect.inflate_ip(100, 100)
+        los_walls = [w for w in walls if los_rect.colliderect(w)] + [w for w in locked_walls if los_rect.colliderect(w)]
+
         check_points = [
             (enemy_center_world_x, enemy_center_world_y),
             (enemy_x, enemy_y),
@@ -502,7 +520,7 @@ while running:
         for pt in check_points:
             los_line = ((player_center_world_x, player_center_world_y), pt)
             pt_visible = True
-            for wall in walls + locked_walls:
+            for wall in los_walls:
                 if wall.clipline(*los_line):
                     pt_visible = False
                     break
@@ -529,14 +547,9 @@ while running:
 
     polygon_points = []
     
-    # Filtrace zdí, které jsou dostatečně blízko
-    walls_in_range = []
-    for wall in walls + locked_walls:
-        wall_center_x = wall.x + wall.width / 2
-        wall_center_y = wall.y + wall.height / 2
-        dist = math.hypot(player_center_world_x - wall_center_x, player_center_world_y - wall_center_y)
-        if dist < vision_radius + wall.width:
-            walls_in_range.append(wall)
+    # Filtrace zdí pro Raycasting, využíváme rychlý colliderect 
+    vision_rect = pygame.Rect(player_center_world_x - vision_radius, player_center_world_y - vision_radius, vision_radius * 2, vision_radius * 2)
+    walls_in_range = [wall for wall in walls if vision_rect.colliderect(wall)] + [wall for wall in locked_walls if vision_rect.colliderect(wall)]
 
     for angle in range(0, 360, ray_step):
         rad = math.radians(angle)

@@ -70,6 +70,11 @@ enemy_speed = 3
 # Player health
 player_health = 5
 
+# Settings
+brightness = 0  # 0-255, 0 = no overlay
+target_fps = 120
+show_fps_counter = False
+
 # Zvětšení mapy
 scale = 4.5 
 
@@ -235,6 +240,7 @@ while running:
                 pause_text = pause_font.render("PAUSED", True, (255, 255, 255))
                 resume_text = small_font.render("Press ESC to Resume", True, (200, 200, 200))
                 quit_text = small_font.render("Press Q to Quit", True, (200, 200, 200))
+                settings_text = small_font.render("Press S for Settings", True, (200, 200, 200))
                 
                 bg_copy = screen.copy()
                 
@@ -249,6 +255,65 @@ while running:
                             if p_event.key == pygame.K_q:
                                 running = False
                                 paused = False
+                            if p_event.key == pygame.K_s:
+                                # Open settings
+                                settings_open = True
+                                settings_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+                                settings_surf.fill((0, 0, 0, 200))
+                                
+                                settings_font = pygame.font.SysFont(None, 80)
+                                option_font = pygame.font.SysFont(None, 40)
+                                
+                                settings_title = settings_font.render("SETTINGS", True, (255, 255, 255))
+                                brightness_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
+                                fps_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
+                                fps_counter_text = option_font.render(f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}", True, (255, 255, 255))
+                                back_text = option_font.render("Press ESC to go back", True, (200, 200, 200))
+                                brightness_hint = option_font.render("Use LEFT/RIGHT arrows to adjust brightness", True, (150, 150, 150))
+                                fps_hint = option_font.render("Use UP/DOWN arrows to adjust FPS", True, (150, 150, 150))
+                                fps_counter_hint = option_font.render("Press SPACE to toggle FPS counter", True, (150, 150, 150))
+                                
+                                while settings_open:
+                                    for s_event in pygame.event.get():
+                                        if s_event.type == pygame.QUIT:
+                                            running = False
+                                            settings_open = False
+                                            paused = False
+                                        if s_event.type == pygame.KEYDOWN:
+                                            if s_event.key == pygame.K_ESCAPE:
+                                                settings_open = False
+                                            elif s_event.key == pygame.K_LEFT:
+                                                brightness = max(0, brightness - 10)
+                                                brightness_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
+                                            elif s_event.key == pygame.K_RIGHT:
+                                                brightness = min(255, brightness + 10)
+                                                brightness_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
+                                            elif s_event.key == pygame.K_UP:
+                                                target_fps = min(240, target_fps + 10)
+                                                fps_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
+                                            elif s_event.key == pygame.K_DOWN:
+                                                target_fps = max(30, target_fps - 10)
+                                                fps_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
+                                            elif s_event.key == pygame.K_SPACE:
+                                                show_fps_counter = not show_fps_counter
+                                                fps_counter_text = option_font.render(f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}", True, (255, 255, 255))
+                                    
+                                    if not running:
+                                        break
+                                    
+                                    screen.blit(bg_copy, (0, 0))
+                                    screen.blit(settings_surf, (0, 0))
+                                    screen.blit(settings_title, (width // 2 - settings_title.get_width() // 2, 100))
+                                    screen.blit(brightness_text, (width // 2 - brightness_text.get_width() // 2, 250))
+                                    screen.blit(brightness_hint, (width // 2 - brightness_hint.get_width() // 2, 300))
+                                    screen.blit(fps_text, (width // 2 - fps_text.get_width() // 2, 400))
+                                    screen.blit(fps_hint, (width // 2 - fps_hint.get_width() // 2, 450))
+                                    screen.blit(fps_counter_text, (width // 2 - fps_counter_text.get_width() // 2, 500))
+                                    screen.blit(fps_counter_hint, (width // 2 - fps_counter_hint.get_width() // 2, 550))
+                                    screen.blit(back_text, (width // 2 - back_text.get_width() // 2, height - 100))
+                                    
+                                    pygame.display.flip()
+                                    clock.tick(60)
                     
                     if not running:
                         break
@@ -258,6 +323,7 @@ while running:
                     screen.blit(pause_text, (width // 2 - pause_text.get_width() // 2, height // 2 - 100))
                     screen.blit(resume_text, (width // 2 - resume_text.get_width() // 2, height // 2 + 20))
                     screen.blit(quit_text, (width // 2 - quit_text.get_width() // 2, height // 2 + 80))
+                    screen.blit(settings_text, (width // 2 - settings_text.get_width() // 2, height // 2 + 140))
                     
                     pygame.display.flip()
                     clock.tick(60)
@@ -643,10 +709,25 @@ while running:
         
         screen.blit(scaled_orb, (draw_x, draw_y))
 
-#
+    # FPS Counter
+    if show_fps_counter:
+        fps = clock.get_fps()
+        fps_text = font.render(f"FPS: {int(fps)}", True, (255, 255, 255))
+        fps_bg = pygame.Surface((fps_text.get_width() + 10, fps_text.get_height() + 10), pygame.SRCALPHA)
+        fps_bg.fill((0, 0, 0, 180))
+        screen.blit(fps_bg, (width - fps_text.get_width() - 20, 10))
+        screen.blit(fps_text, (width - fps_text.get_width() - 15, 13))
+
+    # Brightness overlay
+    if brightness > 0:
+        brightness_overlay = pygame.Surface((width, height))
+        brightness_overlay.fill((255, 255, 255))
+        brightness_overlay.set_alpha(brightness)
+        screen.blit(brightness_overlay, (0, 0))
+
     pygame.display.flip()
     
     # fps limit
-    clock.tick(120)
+    clock.tick(target_fps)
 
 pygame.quit()

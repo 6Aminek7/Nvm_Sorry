@@ -6,7 +6,7 @@ import os
 
 pygame.init()
 
-# Okno - fullscreen
+# Nastavení okna hry
 width, height = pygame.display.get_desktop_sizes()[0]
 screen = pygame.display.set_mode((width, height), pygame.FULLSCREEN)
 pygame.display.set_caption("The Labyrinth")
@@ -21,7 +21,7 @@ health_font = pygame.font.SysFont(None, 50)
 # Font pro death screen
 dead_font = pygame.font.SysFont(None, 100)
 
-# Labyrinth Mapa (W = Zed, P = Hrač, E = enemy, mezera = cesta)
+# Definice mapy bludiště (W = zeď, P = hráč, E = nepřítel, mezera = cesta, L = zamčená zeď)
 maze_layout = [
     "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWLWWWWWWWWWWWWWWWWWWWWWWWWWW",
     "W       W         W               W                        W",
@@ -39,7 +39,7 @@ maze_layout = [
     "W     W W W       W W       W           W W W W W        W W",
     "W WWW W W W WWWWW W W WWWWWWWWWWW WWWWW W W W W W WWWWWW W W",
     "W   W W W W     W W W W                 W W   W W W    W W W",
-    "W WWW W W WWWWW W W W W                 W WWWWW W WWWW W W W",
+    "W WWW W W WWWWW W W W W      W          W WWWWW W WWWW W W W",
     "W   W W W       W W W W      P    E     W       W W    W W W",
     "WWWWW W WWWWWWWWW W W W                 W W WWWWW W WWWW W W",
     "W     W           W W W                 W W W     W      W W",
@@ -56,22 +56,22 @@ maze_layout = [
     "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
 ]
 
-# Player config
+# Nastavení hráče
 size = 80
 hitbox_size = 60
 hitbox_offset = (size - hitbox_size) / 2
 color = (29, 30, 66)
 
-# Enemy config
+# Nastavení nepřítele
 enemy_size = 50
 enemy_color = (161, 163, 145)
 enemy_speed = 3
 
-# Player health
-player_health = 5
+# Zdraví hráče
+player_health = 6
 
-# Settings
-brightness = 0  # 0-255, 0 = no overlay
+# Nastavení hry
+brightness = 0  # 0-255, 0 = žádný overlay
 target_fps = 120
 show_fps_counter = False
 
@@ -124,6 +124,7 @@ deadzone = 300
 TEXTURES_DIR = os.path.join(os.path.dirname(__file__), "textures")
 
 def get_texture(filename, default_color, size_tuple, pixelate_size=None):
+    # Funkce pro načtení textury s fallback na výchozí barvu
     path = os.path.join(TEXTURES_DIR, filename)
     if os.path.exists(path):
         try:
@@ -143,14 +144,19 @@ wall_draw_size = math.ceil(block_size * zoom)
 player_draw_size = math.ceil(size * zoom)
 enemy_draw_size = math.ceil(enemy_size * zoom)
 
-# Textura pro podlahu
+# Výpočet velikostí pro vykreslování
+wall_draw_size = math.ceil(block_size * zoom)
+player_draw_size = math.ceil(size * zoom)
+enemy_draw_size = math.ceil(enemy_size * zoom)
+
+# Nastavení textury pro podlahu s variantami
 floor_fallback = pygame.Surface((256, 256))
 floor_fallback.fill((35, 109, 122))
 if os.path.exists(os.path.join(TEXTURES_DIR, "floor.png")):
     try:
         floor_img = pygame.image.load(os.path.join(TEXTURES_DIR, "floor.png")).convert_alpha()
         
-# Rozpixelování textur
+        # Rozpixelování textur pro retro vzhled
         pixelated_floor = pygame.transform.scale(floor_img, (64, 64))
         floor_texture = pygame.transform.scale(pixelated_floor, (int(256 * zoom), int(256 * zoom)))
     except Exception as e:
@@ -159,6 +165,7 @@ if os.path.exists(os.path.join(TEXTURES_DIR, "floor.png")):
 else:
     floor_texture = floor_fallback
 
+# Varianty podlahy pro vizuální rozmanitost
 floor_variations = [
     floor_texture,
     pygame.transform.flip(floor_texture, True, False),
@@ -175,11 +182,30 @@ textura_slime_orb = get_texture("slime_orb.png", (0, 188, 212), (30, 30))
 textura_slime_orb_eyes = get_texture("slime_orb_eyes.png", (33, 150, 243), (50, 50))
 # --- Konec načtení textur ---
 
+# Vytvoření předvykresleného povrchu pro bludiště kvůli optimalizaci
+maze_width = len(maze_layout[0]) * wall_draw_size
+maze_height = len(maze_layout) * wall_draw_size
+maze_surface = pygame.Surface((maze_width, maze_height), pygame.SRCALPHA)
+
+# Vykreslení zdí na povrch bludiště
+for wall in walls:
+    surf_x = int(wall.x * zoom)
+    surf_y = int(wall.y * zoom)
+    maze_surface.blit(textura_zed, (surf_x, surf_y))
+
+# Vykreslení zamčených zdí na povrch bludiště
+for l_wall in locked_walls:
+    surf_x = int(l_wall.x * zoom)
+    surf_y = int(l_wall.y * zoom)
+    maze_surface.blit(textura_zamcena_zed, (surf_x, surf_y))
+
 
 wobble_time = 0.0
 wobble_amp = 0.0
 particles = []
 running = True
+
+# Hlavní herní smyčka
 while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -470,7 +496,7 @@ while running:
 
 
             # Respawn player
-            player_health = 5
+            player_health = 6
             x = start_x
             y = start_y
             enemy_x = start_enemy_x
@@ -495,8 +521,7 @@ while running:
     elif player_screen_y > bottom:
         camera_y = y - bottom / zoom
 
-    # Vykreslení podlahy s texturou (tiling loop)
-    # Vyplníme pozadí pro případ, že něco ujede
+    # Vykreslení podlahy s dlaždicováním textury
     screen.fill((20, 20, 20))
     bg_w, bg_h = floor_texture.get_size()
     start_floor_x = -int(camera_x * zoom) % bg_w
@@ -510,19 +535,11 @@ while running:
             screen.blit(floor_variations[var_index], (fx, fy))
 
 
-    # Nakreslení zdí a culling
-    for wall in walls:
-        draw_x = int((wall.x - camera_x) * zoom)
-        draw_y = int((wall.y - camera_y) * zoom)
-        if -wall_draw_size <= draw_x <= width and -wall_draw_size <= draw_y <= height:
-            screen.blit(textura_zed, (draw_x, draw_y))
-
-    # Nakreslení zamčených zdí
-    for l_wall in locked_walls:
-        draw_x = int((l_wall.x - camera_x) * zoom)
-        draw_y = int((l_wall.y - camera_y) * zoom)
-        if -wall_draw_size <= draw_x <= width and -wall_draw_size <= draw_y <= height:
-            screen.blit(textura_zamcena_zed, (draw_x, draw_y))
+    # Vykreslení předvykresleného bludiště
+    surf_left = int(camera_x * zoom)
+    surf_top = int(camera_y * zoom)
+    visible_rect = (surf_left, surf_top, width, height)
+    screen.blit(maze_surface, (0, 0), visible_rect)
     
     # Update a vykreslení částic
     active_particles = []
@@ -672,11 +689,11 @@ while running:
     screen.blit(text_bg, (10, 10))
     screen.blit(player_surf, (15, 13))
 
-    # Health display
+    # Zobrazení zdraví hráče
     orb_spacing = 35
     icon_width = 50
     padding = 10
-    total_health_width = icon_width + padding + (player_health * orb_spacing) if player_health > 0 else icon_width
+    total_health_width = icon_width + padding + ((player_health - 1) * orb_spacing) if player_health > 1 else icon_width
     bg_width = total_health_width + padding * 2
     bg_height = 50 + padding * 2
     
@@ -686,12 +703,20 @@ while running:
     
     screen.blit(health_bg, (10, health_bg_y))
 
-    # Base "Text" replacement - Slime orb with eyes
-    screen.blit(textura_slime_orb_eyes, (10 + padding, health_bg_y + padding))
+    # Slime orb with eyes (represents the last health)
+    if player_health > 0:
+        eyes_x = 10 + padding
+        eyes_y = health_bg_y + padding
+        if player_health == 1:
+            shake_x = random.randint(-5, 5)
+            shake_y = random.randint(-5, 5)
+            eyes_x += shake_x
+            eyes_y += shake_y
+        screen.blit(textura_slime_orb_eyes, (eyes_x, eyes_y))
 
-    # Animated Slime Orbs
+    # Animated Slime Orbs (for additional health)
     current_time = pygame.time.get_ticks() / 1000.0
-    for i in range(player_health):
+    for i in range(max(0, player_health - 1)):
         anim_time = current_time * 5 + (i * 0.8) 
         squish = math.sin(anim_time) * 0.15 
         
@@ -709,7 +734,7 @@ while running:
         
         screen.blit(scaled_orb, (draw_x, draw_y))
 
-    # FPS Counter
+    # Zobrazení počítadla FPS
     if show_fps_counter:
         fps = clock.get_fps()
         fps_text = font.render(f"FPS: {int(fps)}", True, (255, 255, 255))

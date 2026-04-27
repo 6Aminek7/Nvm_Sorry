@@ -44,9 +44,9 @@ maze_layout = [
     "W     W W W       W W       W           W W W W W        W W",
     "W WWW W W W WWWWW W W WWWWWWWWWWW WWWWW W W W W W WWWWWW W W",
     "W   W W W W     W W W W                 W W   W W W    W W W",
-    "W WWW W W WWWWW W W W W      W          W WWWWW W WWWW W W W",
-    "W   W W W       W W W W      P   KE     W       W W    W W W",
-    "WWWWW W WWWWWWWWW W W W                 W W WWWWW W WWWW W W",
+    "W WWW W W WWWWW W W W W    K W  W       W WWWWW W WWWW W W W",
+    "W   W W W       W W W W  H   P    E     W       W W    W W W",
+    "WWWWW W WWWWWWWWW W W W  W    W         W W WWWWW W WWWW W W",
     "W     W           W W W                 W W W     W      W W",
     "W WWWWWWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWW W W WWWWW WWWWWW W",
     "W                 W W                     W W W          W W",
@@ -92,6 +92,8 @@ inventory = [] # Inventář hráče (na začátku prázdný)
 inventory_open = False # Stav, zda je zrovna otevřena obrazovka inventáře
 items_on_ground = [] # Seznam předmětů ležících na mapě
 pickup_notifications = [] # Seznam pro zobrazení sebraných předmětů v rohu obrazovky
+healing_platforms = [] # Seznam léčivých platforem (checkpointů)
+healing_platform_glow = [] # Aktivní animace záblesku při aktivaci léčivé platformy
 
 # Default values (Výchozí startovní souřadnice pro případ, že na mapě chybí P a E)
 start_x, start_y = 100, 100
@@ -126,10 +128,22 @@ for row_idx, row in enumerate(maze_layout):
             item_x = int(col_idx * block_size + block_size / 2)
             item_y = int(row_idx * block_size + block_size / 2)
             items_on_ground.append({'type': 'Key', 'x': item_x, 'y': item_y})
+        elif cell == "H":
+            # Umístění léčivé platformy (checkpoint) na pozici bloku v mapě
+            hp_rect = pygame.Rect(
+                int(col_idx * block_size),
+                int(row_idx * block_size),
+                block_size,
+                block_size
+            )
+            healing_platforms.append(hp_rect)
 
 # Přiřazení počátečních hodnot aktuálním souřadnicím
 x, y = start_x, start_y
 enemy_x, enemy_y = start_enemy_x, start_enemy_y
+
+# Checkpoint - léčivá platforma uloží poslední bezpečnou pozici hráče
+checkpoint_x, checkpoint_y = start_x, start_y
 
 # Nastavení kamery
 zoom = 0.7 # Úroveň přiblížení (méně než 1 oddaluje, více než 1 přibližuje)
@@ -204,6 +218,7 @@ textura_nepritel = get_texture("enemy.png", enemy_color, (enemy_draw_size, enemy
 textura_klic_icon = get_texture("key.png", (255, 215, 0), (50, 50))
 textura_slime_orb = get_texture("slime_orb.png", (0, 188, 212), (30, 30))
 textura_slime_orb_eyes = get_texture("slime_orb_eyes.png", (33, 150, 243), (50, 50))
+textura_healing_platform = get_texture("healing_platform.png", (0, 100, 220), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
 # --- Konec načtení textur ---
 
 # Vytvoření předvykresleného povrchu pro bludiště (optimalizace pro zvýšení plynulosti hry)
@@ -325,48 +340,105 @@ while running:
             if event.key == pygame.K_ESCAPE:
                 paused = True
                 pause_surf = pygame.Surface((width, height), pygame.SRCALPHA)
-                pause_surf.fill((0, 0, 0, 180))
-                
-                pause_font = pygame.font.SysFont(None, 100)
-                small_font = pygame.font.SysFont(None, 50)
-                
+                pause_surf.fill((0, 0, 0, 190))
+
+                pause_font = pygame.font.SysFont(None, 110)
+                btn_font   = pygame.font.SysFont(None, 54)
+
                 pause_text = pause_font.render("PAUSED", True, (255, 255, 255))
-                resume_text = small_font.render("Press ESC to Resume", True, (200, 200, 200))
-                quit_text = small_font.render("Press Q to Quit", True, (200, 200, 200))
-                settings_text = small_font.render("Press S for Settings", True, (200, 200, 200))
-                
+
+                # --- Pomocná funkce pro kreslení tlačítka s hover efektem ---
+                def draw_pause_button(surf, rect, label, hovered):
+                    # Barvy pozadí tlačítka
+                    base_col   = (30,  40,  70, 210)
+                    hover_col  = (50,  80, 160, 230)
+                    border_col = (80, 140, 255) if hovered else (60, 80, 140)
+                    fill_col   = hover_col if hovered else base_col
+
+                    # Poloprůhledný podklad
+                    btn_bg = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+                    pygame.draw.rect(btn_bg, fill_col, btn_bg.get_rect(), border_radius=14)
+                    surf.blit(btn_bg, rect.topleft)
+
+                    # Rámeček
+                    pygame.draw.rect(surf, border_col, rect, width=2, border_radius=14)
+
+                    # Jemný vnější zásvit při hover
+                    if hovered:
+                        glow_s = pygame.Surface((rect.width + 20, rect.height + 20), pygame.SRCALPHA)
+                        pygame.draw.rect(glow_s, (80, 160, 255, 45), glow_s.get_rect(), border_radius=18)
+                        surf.blit(glow_s, (rect.x - 10, rect.y - 10))
+
+                    # Text tlačítka
+                    lbl_col = (230, 240, 255) if hovered else (180, 190, 220)
+                    lbl_surf = btn_font.render(label, True, lbl_col)
+                    surf.blit(lbl_surf, (
+                        rect.x + (rect.width  - lbl_surf.get_width())  // 2,
+                        rect.y + (rect.height - lbl_surf.get_height()) // 2
+                    ))
+
+                # Rozměry a pozice tří tlačítek hlavní pauzy
+                btn_w, btn_h = 340, 64
+                btn_x = width // 2 - btn_w // 2
+                btn_resume   = pygame.Rect(btn_x, height // 2 - 20,        btn_w, btn_h)
+                btn_settings = pygame.Rect(btn_x, height // 2 - 20 + 90,   btn_w, btn_h)
+                btn_quit     = pygame.Rect(btn_x, height // 2 - 20 + 180,  btn_w, btn_h)
+
+                pygame.mouse.set_visible(True)
                 bg_copy = screen.copy()
-                
+
                 while paused:
+                    mx, my = pygame.mouse.get_pos()
+
                     for p_event in pygame.event.get():
                         if p_event.type == pygame.QUIT:
                             running = False
                             paused = False
+
                         if p_event.type == pygame.KEYDOWN:
                             if p_event.key == pygame.K_ESCAPE:
                                 paused = False
-                            if p_event.key == pygame.K_q:
+
+                        if p_event.type == pygame.MOUSEBUTTONDOWN and p_event.button == 1:
+                            if btn_resume.collidepoint(mx, my):
+                                paused = False
+
+                            elif btn_quit.collidepoint(mx, my):
                                 running = False
                                 paused = False
-                            if p_event.key == pygame.K_s:
-                                # Open settings
+
+                            elif btn_settings.collidepoint(mx, my):
+                                # --- Obrazovka nastavení ---
                                 settings_open = True
                                 settings_surf = pygame.Surface((width, height), pygame.SRCALPHA)
                                 settings_surf.fill((0, 0, 0, 200))
-                                
+
                                 settings_font = pygame.font.SysFont(None, 80)
-                                option_font = pygame.font.SysFont(None, 40)
+                                option_font   = pygame.font.SysFont(None, 40)
+
+                                settings_title    = settings_font.render("SETTINGS", True, (255, 255, 255))
                                 
-                                settings_title = settings_font.render("SETTINGS", True, (255, 255, 255))
-                                brightness_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
-                                fps_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
-                                fps_counter_text = option_font.render(f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}", True, (255, 255, 255))
-                                back_text = option_font.render("Press ESC to go back", True, (200, 200, 200))
-                                brightness_hint = option_font.render("Use LEFT/RIGHT arrows to adjust brightness", True, (150, 150, 150))
-                                fps_hint = option_font.render("Use UP/DOWN arrows to adjust FPS", True, (150, 150, 150))
-                                fps_counter_hint = option_font.render("Press SPACE to toggle FPS counter", True, (150, 150, 150))
+                                # Definice tlačítek pro nastavení
+                                btn_sz = 60
+                                row_y = [250, 400, 500]
                                 
+                                # Brightness buttons
+                                br_minus_btn = pygame.Rect(width // 2 - 200, row_y[0], btn_sz, btn_sz)
+                                br_plus_btn  = pygame.Rect(width // 2 + 150, row_y[0], btn_sz, btn_sz)
+                                
+                                # FPS buttons
+                                fps_minus_btn = pygame.Rect(width // 2 - 200, row_y[1], btn_sz, btn_sz)
+                                fps_plus_btn  = pygame.Rect(width // 2 + 150, row_y[1], btn_sz, btn_sz)
+                                
+                                # FPS Counter toggle button
+                                fps_toggle_btn = pygame.Rect(width // 2 - 200, row_y[2], 400, btn_sz)
+
+                                # Tlačítko Back v nastavení
+                                back_btn = pygame.Rect(width // 2 - 170, height - 110, 340, 64)
+
                                 while settings_open:
+                                    smx, smy = pygame.mouse.get_pos()
+
                                     for s_event in pygame.event.get():
                                         if s_event.type == pygame.QUIT:
                                             running = False
@@ -375,51 +447,73 @@ while running:
                                         if s_event.type == pygame.KEYDOWN:
                                             if s_event.key == pygame.K_ESCAPE:
                                                 settings_open = False
-                                            elif s_event.key == pygame.K_LEFT:
+                                        
+                                        if s_event.type == pygame.MOUSEBUTTONDOWN and s_event.button == 1:
+                                            if back_btn.collidepoint(smx, smy):
+                                                settings_open = False
+                                            elif br_minus_btn.collidepoint(smx, smy):
                                                 brightness = max(0, brightness - 10)
-                                                brightness_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
-                                            elif s_event.key == pygame.K_RIGHT:
+                                            elif br_plus_btn.collidepoint(smx, smy):
                                                 brightness = min(255, brightness + 10)
-                                                brightness_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
-                                            elif s_event.key == pygame.K_UP:
-                                                target_fps = min(240, target_fps + 10)
-                                                fps_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
-                                            elif s_event.key == pygame.K_DOWN:
+                                            elif fps_minus_btn.collidepoint(smx, smy):
                                                 target_fps = max(30, target_fps - 10)
-                                                fps_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
-                                            elif s_event.key == pygame.K_SPACE:
+                                            elif fps_plus_btn.collidepoint(smx, smy):
+                                                target_fps = min(240, target_fps + 10)
+                                            elif fps_toggle_btn.collidepoint(smx, smy):
                                                 show_fps_counter = not show_fps_counter
-                                                fps_counter_text = option_font.render(f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}", True, (255, 255, 255))
-                                    
+
                                     if not running:
                                         break
-                                    
+
                                     screen.blit(bg_copy, (0, 0))
                                     screen.blit(settings_surf, (0, 0))
-                                    screen.blit(settings_title, (width // 2 - settings_title.get_width() // 2, 100))
-                                    screen.blit(brightness_text, (width // 2 - brightness_text.get_width() // 2, 250))
-                                    screen.blit(brightness_hint, (width // 2 - brightness_hint.get_width() // 2, 300))
-                                    screen.blit(fps_text, (width // 2 - fps_text.get_width() // 2, 400))
-                                    screen.blit(fps_hint, (width // 2 - fps_hint.get_width() // 2, 450))
-                                    screen.blit(fps_counter_text, (width // 2 - fps_counter_text.get_width() // 2, 500))
-                                    screen.blit(fps_counter_hint, (width // 2 - fps_counter_hint.get_width() // 2, 550))
-                                    screen.blit(back_text, (width // 2 - back_text.get_width() // 2, height - 100))
+                                    screen.blit(settings_title,   (width // 2 - settings_title.get_width()   // 2, 100))
                                     
+                                    # Render Brightness
+                                    br_val_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
+                                    screen.blit(br_val_text, (width // 2 - br_val_text.get_width() // 2, row_y[0] + 10))
+                                    draw_pause_button(screen, br_minus_btn, "-", br_minus_btn.collidepoint(smx, smy))
+                                    draw_pause_button(screen, br_plus_btn, "+", br_plus_btn.collidepoint(smx, smy))
+                                    
+                                    # Render FPS
+                                    fps_val_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
+                                    screen.blit(fps_val_text, (width // 2 - fps_val_text.get_width() // 2, row_y[1] + 10))
+                                    draw_pause_button(screen, fps_minus_btn, "-", fps_minus_btn.collidepoint(smx, smy))
+                                    draw_pause_button(screen, fps_plus_btn, "+", fps_plus_btn.collidepoint(smx, smy))
+                                    
+                                    # Render FPS Counter Toggle
+                                    fps_count_label = f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}"
+                                    draw_pause_button(screen, fps_toggle_btn, fps_count_label, fps_toggle_btn.collidepoint(smx, smy))
+
+                                    # Tlačítko Back
+                                    draw_pause_button(screen, back_btn, "Back", back_btn.collidepoint(smx, smy))
+
                                     pygame.display.flip()
                                     clock.tick(60)
-                    
+
                     if not running:
                         break
-                    
+
+                    # --- Vykreslení pauza obrazovky ---
                     screen.blit(bg_copy, (0, 0))
                     screen.blit(pause_surf, (0, 0))
-                    screen.blit(pause_text, (width // 2 - pause_text.get_width() // 2, height // 2 - 100))
-                    screen.blit(resume_text, (width // 2 - resume_text.get_width() // 2, height // 2 + 20))
-                    screen.blit(quit_text, (width // 2 - quit_text.get_width() // 2, height // 2 + 80))
-                    screen.blit(settings_text, (width // 2 - settings_text.get_width() // 2, height // 2 + 140))
-                    
+
+                    # Nadpis
+                    screen.blit(pause_text, (width // 2 - pause_text.get_width() // 2, height // 2 - 160))
+
+                    # Jemná oddělovací linka pod nadpisem
+                    line_y = height // 2 - 85
+                    pygame.draw.line(screen, (70, 100, 180), (width // 2 - 170, line_y), (width // 2 + 170, line_y), 1)
+
+                    # Tři tlačítka s hover efektem
+                    draw_pause_button(screen, btn_resume,   "Resume",   btn_resume.collidepoint(mx, my))
+                    draw_pause_button(screen, btn_settings, "Settings", btn_settings.collidepoint(mx, my))
+                    draw_pause_button(screen, btn_quit,     "Quit",     btn_quit.collidepoint(mx, my))
+
                     pygame.display.flip()
                     clock.tick(60)
+
+                pygame.mouse.set_visible(False)
             
     if not running:
         break
@@ -518,6 +612,32 @@ while running:
         if wobble_amp > 0:
             wobble_time += 0.30 # Necháme doznívat animaci
 
+    # --- Kontrola kolize s léčivou platformou (checkpoint) ---
+    player_hitbox = pygame.Rect(x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size)
+    for hp in healing_platforms:
+        if player_hitbox.colliderect(hp):
+            # Uložení nového checkpointu
+            checkpoint_x = x
+            checkpoint_y = y
+            # Plné vyléčení hráče
+            player_health = 6
+            # Spuštění záblesku pouze pokud na platformě ještě není aktivní záblesk
+            center_x = hp.x + hp.width / 2
+            center_y = hp.y + hp.height / 2
+            already_glowing = any(
+                abs(g['x'] - center_x) < 5 and abs(g['y'] - center_y) < 5
+                for g in healing_platform_glow
+            )
+            if not already_glowing:
+                for ring_idx in range(4):
+                    healing_platform_glow.append({
+                        'x': center_x,
+                        'y': center_y,
+                        'radius': ring_idx * 18.0,
+                        'alpha': 220 - ring_idx * 40
+                    })
+            break
+
     # --- Umělá inteligence nepřítele (Enemy AI) ---
     # Nepřítel se neustále snaží dostat přímo k hráči (jednoduché pronásledování)
     dx_enemy = x - enemy_x
@@ -573,10 +693,10 @@ while running:
             pygame.time.delay(2000)
 
 
-            # Respawn player
+            # Respawn hráče na posledním checkpointu (léčivé platformě nebo startu)
             player_health = 6
-            x = start_x
-            y = start_y
+            x = checkpoint_x
+            y = checkpoint_y
             enemy_x = start_enemy_x
             enemy_y = start_enemy_y
 
@@ -628,7 +748,41 @@ while running:
     # Zkopírujeme jen tu část obří mapy, kterou kamera aktuálně vidí
     visible_rect = (surf_left, surf_top, width, height)
     screen.blit(maze_surface, (0, 0), visible_rect)
-    
+
+    # --- Vykreslení léčivých platforem ---
+    curr_glow_t = pygame.time.get_ticks() / 1000.0
+    hp_draw_size = int(block_size * zoom)
+    for hp in healing_platforms:
+        hp_draw_x = int((hp.x - camera_x) * zoom)
+        hp_draw_y = int((hp.y - camera_y) * zoom)
+        if -hp_draw_size < hp_draw_x < width + hp_draw_size and -hp_draw_size < hp_draw_y < height + hp_draw_size:
+            screen.blit(textura_healing_platform, (hp_draw_x, hp_draw_y))
+            # Pulzující modrá záře kolem platformy
+            pulse = (math.sin(curr_glow_t * 2.5) + 1) / 2
+            glow_r = int((hp_draw_size // 2) * (0.7 + 0.35 * pulse))
+            if glow_r > 0:
+                glow_surf = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
+                glow_alpha = int(35 + 30 * pulse)
+                pygame.draw.circle(glow_surf, (30, 160, 255, glow_alpha), (glow_r, glow_r), glow_r)
+                screen.blit(glow_surf, (hp_draw_x + hp_draw_size // 2 - glow_r, hp_draw_y + hp_draw_size // 2 - glow_r))
+
+    # Vykreslení zábleskových kroužků po aktivaci platformy
+    active_glows = []
+    for glow in healing_platform_glow:
+        glow['radius'] += 3.5
+        glow['alpha'] = max(0, glow['alpha'] - 6)
+        if glow['alpha'] > 0:
+            active_glows.append(glow)
+            gx = int((glow['x'] - camera_x) * zoom)
+            gy = int((glow['y'] - camera_y) * zoom)
+            gr = int(glow['radius'] * zoom)
+            if gr > 0:
+                ring_surf = pygame.Surface((gr * 2 + 4, gr * 2 + 4), pygame.SRCALPHA)
+                pygame.draw.circle(ring_surf, (80, 200, 255, int(glow['alpha'])), (gr + 2, gr + 2), gr, max(1, int(3 * zoom)))
+                screen.blit(ring_surf, (gx - gr - 2, gy - gr - 2))
+    healing_platform_glow = active_glows
+    # --- Konec léčivých platforem ---
+
     # Vykreslení předmětů na zemi (efekt jiskřivých pixelů)
     curr_t = pygame.time.get_ticks() / 1000.0
     for item in items_on_ground:

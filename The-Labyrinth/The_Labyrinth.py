@@ -14,6 +14,8 @@ width, height = pygame.display.get_desktop_sizes()[0]
 screen = pygame.display.set_mode((width, height), pygame.FULLSCREEN)
 # Nastavíme titulek herního okna
 pygame.display.set_caption("The Labyrinth")
+# Skryjeme systémový kurzor a nahradíme ho vlastním
+pygame.mouse.set_visible(False)
 # Vytvoříme objekt Clock pro řízení a omezování snímkové frekvence (FPS)
 clock = pygame.time.Clock()
 
@@ -179,6 +181,15 @@ def get_texture(filename, default_color, size_tuple, pixelate_size=None):
     surf = pygame.Surface(size_tuple, pygame.SRCALPHA)
     surf.fill(default_color)
     return surf
+
+# Vykreslení vlastního kurzoru na obrazovce
+def draw_custom_cursor(surf, x, y, size=10):
+    cursor_color = (180, 220, 255)
+    highlight_color = (255, 255, 255)
+    pygame.draw.circle(surf, cursor_color, (x, y), size, 2)
+    pygame.draw.line(surf, cursor_color, (x - size, y), (x + size, y), 1)
+    pygame.draw.line(surf, cursor_color, (x, y - size), (x, y + size), 1)
+    pygame.draw.circle(surf, highlight_color, (x, y), 2)
 
 # Výpočet vykreslovacích rozměrů objektů podle aktuálního přiblížení (zoomu)
 wall_draw_size = math.ceil(block_size * zoom)
@@ -384,7 +395,7 @@ while running:
                 btn_settings = pygame.Rect(btn_x, height // 2 - 20 + 90,   btn_w, btn_h)
                 btn_quit     = pygame.Rect(btn_x, height // 2 - 20 + 180,  btn_w, btn_h)
 
-                pygame.mouse.set_visible(True)
+                pygame.mouse.set_visible(False)
                 bg_copy = screen.copy()
 
                 while paused:
@@ -420,7 +431,7 @@ while running:
                                 
                                 # Definice tlačítek pro nastavení
                                 btn_sz = 60
-                                row_y = [250, 400, 500]
+                                row_y = [250, 340, 430, 520]
                                 
                                 # Brightness buttons
                                 br_minus_btn = pygame.Rect(width // 2 - 200, row_y[0], btn_sz, btn_sz)
@@ -432,9 +443,14 @@ while running:
                                 
                                 # FPS Counter toggle button
                                 fps_toggle_btn = pygame.Rect(width // 2 - 200, row_y[2], 400, btn_sz)
+                                
+                                # Controls button
+                                controls_btn = pygame.Rect(width // 2 - 200, row_y[3], 400, btn_sz)
 
                                 # Tlačítko Back v nastavení
                                 back_btn = pygame.Rect(width // 2 - 170, height - 110, 340, 64)
+
+                                settings_mode = "main"
 
                                 while settings_open:
                                     smx, smy = pygame.mouse.get_pos()
@@ -446,21 +462,30 @@ while running:
                                             paused = False
                                         if s_event.type == pygame.KEYDOWN:
                                             if s_event.key == pygame.K_ESCAPE:
-                                                settings_open = False
+                                                if settings_mode == "controls":
+                                                    settings_mode = "main"
+                                                else:
+                                                    settings_open = False
                                         
                                         if s_event.type == pygame.MOUSEBUTTONDOWN and s_event.button == 1:
-                                            if back_btn.collidepoint(smx, smy):
-                                                settings_open = False
-                                            elif br_minus_btn.collidepoint(smx, smy):
-                                                brightness = max(0, brightness - 10)
-                                            elif br_plus_btn.collidepoint(smx, smy):
-                                                brightness = min(255, brightness + 10)
-                                            elif fps_minus_btn.collidepoint(smx, smy):
-                                                target_fps = max(30, target_fps - 10)
-                                            elif fps_plus_btn.collidepoint(smx, smy):
-                                                target_fps = min(240, target_fps + 10)
-                                            elif fps_toggle_btn.collidepoint(smx, smy):
-                                                show_fps_counter = not show_fps_counter
+                                            if settings_mode == "main":
+                                                if back_btn.collidepoint(smx, smy):
+                                                    settings_open = False
+                                                elif br_minus_btn.collidepoint(smx, smy):
+                                                    brightness = max(0, brightness - 10)
+                                                elif br_plus_btn.collidepoint(smx, smy):
+                                                    brightness = min(255, brightness + 10)
+                                                elif fps_minus_btn.collidepoint(smx, smy):
+                                                    target_fps = max(30, target_fps - 10)
+                                                elif fps_plus_btn.collidepoint(smx, smy):
+                                                    target_fps = min(240, target_fps + 10)
+                                                elif fps_toggle_btn.collidepoint(smx, smy):
+                                                    show_fps_counter = not show_fps_counter
+                                                elif controls_btn.collidepoint(smx, smy):
+                                                    settings_mode = "controls"
+                                            else:
+                                                if back_btn.collidepoint(smx, smy):
+                                                    settings_mode = "main"
 
                                     if not running:
                                         break
@@ -468,26 +493,45 @@ while running:
                                     screen.blit(bg_copy, (0, 0))
                                     screen.blit(settings_surf, (0, 0))
                                     screen.blit(settings_title,   (width // 2 - settings_title.get_width()   // 2, 100))
-                                    
-                                    # Render Brightness
-                                    br_val_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
-                                    screen.blit(br_val_text, (width // 2 - br_val_text.get_width() // 2, row_y[0] + 10))
-                                    draw_pause_button(screen, br_minus_btn, "-", br_minus_btn.collidepoint(smx, smy))
-                                    draw_pause_button(screen, br_plus_btn, "+", br_plus_btn.collidepoint(smx, smy))
-                                    
-                                    # Render FPS
-                                    fps_val_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
-                                    screen.blit(fps_val_text, (width // 2 - fps_val_text.get_width() // 2, row_y[1] + 10))
-                                    draw_pause_button(screen, fps_minus_btn, "-", fps_minus_btn.collidepoint(smx, smy))
-                                    draw_pause_button(screen, fps_plus_btn, "+", fps_plus_btn.collidepoint(smx, smy))
-                                    
-                                    # Render FPS Counter Toggle
-                                    fps_count_label = f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}"
-                                    draw_pause_button(screen, fps_toggle_btn, fps_count_label, fps_toggle_btn.collidepoint(smx, smy))
+
+                                    if settings_mode == "main":
+                                        # Render Brightness
+                                        br_val_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
+                                        screen.blit(br_val_text, (width // 2 - br_val_text.get_width() // 2, row_y[0] + 10))
+                                        draw_pause_button(screen, br_minus_btn, "-", br_minus_btn.collidepoint(smx, smy))
+                                        draw_pause_button(screen, br_plus_btn, "+", br_plus_btn.collidepoint(smx, smy))
+                                        
+                                        # Render FPS
+                                        fps_val_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
+                                        screen.blit(fps_val_text, (width // 2 - fps_val_text.get_width() // 2, row_y[1] + 10))
+                                        draw_pause_button(screen, fps_minus_btn, "-", fps_minus_btn.collidepoint(smx, smy))
+                                        draw_pause_button(screen, fps_plus_btn, "+", fps_plus_btn.collidepoint(smx, smy))
+                                        
+                                        # Render FPS Counter Toggle
+                                        fps_count_label = f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}"
+                                        draw_pause_button(screen, fps_toggle_btn, fps_count_label, fps_toggle_btn.collidepoint(smx, smy))
+
+                                        # Controls button
+                                        draw_pause_button(screen, controls_btn, "Controls", controls_btn.collidepoint(smx, smy))
+
+                                    elif settings_mode == "controls":
+                                        controls_title = option_font.render("CONTROLS", True, (255, 255, 255))
+                                        screen.blit(controls_title, (width // 2 - controls_title.get_width() // 2, 220))
+                                        controls_lines = [
+                                            "W / A / S / D - Move",
+                                            "Mouse - Aim / Shoot / Interact",
+                                            "SPACE - Pickup item / Interact",
+                                            "ESC - Pause / Back",
+                                            "MOUSE LEFT - Select / Toggle",
+                                        ]
+                                        for idx, line in enumerate(controls_lines):
+                                            line_surf = option_font.render(line, True, (220, 220, 220))
+                                            screen.blit(line_surf, (width // 2 - line_surf.get_width() // 2, 290 + idx * 45))
 
                                     # Tlačítko Back
                                     draw_pause_button(screen, back_btn, "Back", back_btn.collidepoint(smx, smy))
 
+                                    draw_custom_cursor(screen, smx, smy)
                                     pygame.display.flip()
                                     clock.tick(60)
 
@@ -509,6 +553,7 @@ while running:
                     draw_pause_button(screen, btn_resume,   "Resume",   btn_resume.collidepoint(mx, my))
                     draw_pause_button(screen, btn_settings, "Settings", btn_settings.collidepoint(mx, my))
                     draw_pause_button(screen, btn_quit,     "Quit",     btn_quit.collidepoint(mx, my))
+                    draw_custom_cursor(screen, mx, my)
 
                     pygame.display.flip()
                     clock.tick(60)
@@ -1084,6 +1129,8 @@ while running:
         brightness_overlay.fill((255, 255, 255))
         brightness_overlay.set_alpha(brightness) # Nastavení úrovně průhlednosti bílé plochy
         screen.blit(brightness_overlay, (0, 0))
+
+    draw_custom_cursor(screen, mouse_x, mouse_y)
 
     # Tato funkce vezme vše, co jsme během snímku nakreslili do paměti a plácne to na monitor naráz
     pygame.display.flip()

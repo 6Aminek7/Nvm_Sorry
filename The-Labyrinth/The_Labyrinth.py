@@ -19,14 +19,15 @@ pygame.mouse.set_visible(False)
 # Vytvoříme objekt Clock pro řízení a omezování snímkové frekvence (FPS)
 clock = pygame.time.Clock()
 
-# Font pro zobrazení souřadnic v rohu obrazovky
+# Fonty pro různé části hry
 font = pygame.font.SysFont(None, 30)
-
-# Font pro zobrazení textů spojených se zdravím (pokud je potřeba)
 health_font = pygame.font.SysFont(None, 50)
-
-# Font pro obrazovku smrti (Game Over)
 dead_font = pygame.font.SysFont(None, 100)
+pause_font = pygame.font.SysFont(None, 110)
+btn_font = pygame.font.SysFont(None, 54)
+menu_title_font = pygame.font.SysFont(None, 140)
+option_font = pygame.font.SysFont(None, 40)
+
 
 # Definice mapy bludiště (W = zeď, P = hráč, E = nepřítel, mezera = cesta, L = zamčená zeď)
 maze_layout = [
@@ -48,7 +49,7 @@ maze_layout = [
     "W   W W W W     W W W W                 W W   W W W    W W W",
     "W WWW W W WWWWW W W W W    K W  W       W WWWWW W WWWW W W W",
     "W   W W W       W W W W  H   P    E     W       W W    W W W",
-    "WWWWW W WWWWWWWWW W W W  W    W         W W WWWWW W WWWW W W",
+    "WWWWW W WWWWWWWWW W W W  W  S W         W W WWWWW W WWWW W W",
     "W     W           W W W                 W W W     W      W W",
     "W WWWWWWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWW W W WWWWW WWWWWW W",
     "W                 W W                     W W W          W W",
@@ -139,6 +140,12 @@ for row_idx, row in enumerate(maze_layout):
                 block_size
             )
             healing_platforms.append(hp_rect)
+        elif cell == "S":
+            # Umístění Glitter Slime Ball na mapu
+            item_x = int(col_idx * block_size + block_size / 2)
+            item_y = int(row_idx * block_size + block_size / 2)
+            items_on_ground.append({'type': 'Glitter Slime Ball', 'x': item_x, 'y': item_y})
+
 
 # Přiřazení počátečních hodnot aktuálním souřadnicím
 x, y = start_x, start_y
@@ -161,14 +168,17 @@ deadzone = 300
 # Získání správné cesty ke složce "textures", ať se skript spouští odkudkoliv
 TEXTURES_DIR = os.path.join(os.path.dirname(__file__), "textures")
 
-def get_texture(filename, default_color, size_tuple, pixelate_size=None):
+def get_texture(filename, default_color, size_tuple, pixelate_size=None, colorkey=None):
     # Funkce pro načtení textury ze souboru s možností záložní barvy (pokud soubor chybí)
     path = os.path.join(TEXTURES_DIR, filename)
     if os.path.exists(path):
         try:
             # Načteme obrázek a zachováme jeho průhlednost (alpha kanál)
             img = pygame.image.load(path).convert_alpha()
+            if colorkey:
+                img.set_colorkey(colorkey)
             if pixelate_size:
+
                 # Záměrně obrázek nejdříve zmenšíme, aby vznikl retro pixel artový efekt
                 img = pygame.transform.scale(img, pixelate_size)
             # Nakonec obrázek přizpůsobíme požadované velikosti a vrátíme
@@ -190,6 +200,37 @@ def draw_custom_cursor(surf, x, y, size=10):
     pygame.draw.line(surf, cursor_color, (x - size, y), (x + size, y), 1)
     pygame.draw.line(surf, cursor_color, (x, y - size), (x, y + size), 1)
     pygame.draw.circle(surf, highlight_color, (x, y), 2)
+
+# --- Pomocná funkce pro kreslení tlačítka s hover efektem ---
+def draw_button(surf, rect, label, hovered):
+    # Barvy pozadí tlačítka
+    base_col   = (30,  40,  70, 210)
+    hover_col  = (50,  80, 160, 230)
+    border_col = (80, 140, 255) if hovered else (60, 80, 140)
+    fill_col   = hover_col if hovered else base_col
+
+    # Poloprůhledný podklad
+    btn_bg = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    pygame.draw.rect(btn_bg, fill_col, btn_bg.get_rect(), border_radius=14)
+    surf.blit(btn_bg, rect.topleft)
+
+    # Rámeček
+    pygame.draw.rect(surf, border_col, rect, width=2, border_radius=14)
+
+    # Jemný vnější zásvit při hover
+    if hovered:
+        glow_s = pygame.Surface((rect.width + 20, rect.height + 20), pygame.SRCALPHA)
+        pygame.draw.rect(glow_s, (80, 160, 255, 45), glow_s.get_rect(), border_radius=18)
+        surf.blit(glow_s, (rect.x - 10, rect.y - 10))
+
+    # Text tlačítka
+    lbl_col = (230, 240, 255) if hovered else (180, 190, 220)
+    lbl_surf = btn_font.render(label, True, lbl_col)
+    surf.blit(lbl_surf, (
+        rect.x + (rect.width  - lbl_surf.get_width())  // 2,
+        rect.y + (rect.height - lbl_surf.get_height()) // 2
+    ))
+
 
 # Výpočet vykreslovacích rozměrů objektů podle aktuálního přiblížení (zoomu)
 wall_draw_size = math.ceil(block_size * zoom)
@@ -213,13 +254,290 @@ if os.path.exists(os.path.join(TEXTURES_DIR, "floor.png")):
 else:
     floor_texture = floor_fallback
 
+# --- Obrazovka nastavení (Settings Menu) ---
+def show_settings_menu(screen, clock, bg_image):
+    global brightness, target_fps, show_fps_counter, running
+    
+    settings_open = True
+    settings_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+    settings_surf.fill((0, 0, 0, 200))
+
+    settings_font = pygame.font.SysFont(None, 80)
+    settings_title = settings_font.render("SETTINGS", True, (255, 255, 255))
+    
+    # Definice tlačítek pro nastavení
+    btn_sz = 60
+    row_y = [250, 340, 430, 520]
+    
+    br_minus_btn = pygame.Rect(width // 2 - 200, row_y[0], btn_sz, btn_sz)
+    br_plus_btn  = pygame.Rect(width // 2 + 150, row_y[0], btn_sz, btn_sz)
+    fps_minus_btn = pygame.Rect(width // 2 - 200, row_y[1], btn_sz, btn_sz)
+    fps_plus_btn  = pygame.Rect(width // 2 + 150, row_y[1], btn_sz, btn_sz)
+    fps_toggle_btn = pygame.Rect(width // 2 - 200, row_y[2], 400, btn_sz)
+    controls_btn = pygame.Rect(width // 2 - 200, row_y[3], 400, btn_sz)
+    back_btn = pygame.Rect(width // 2 - 170, height - 110, 340, 64)
+
+    settings_mode = "main"
+
+    while settings_open:
+        smx, smy = pygame.mouse.get_pos()
+        for s_event in pygame.event.get():
+            if s_event.type == pygame.QUIT:
+                running = False
+                settings_open = False
+            if s_event.type == pygame.KEYDOWN:
+                if s_event.key == pygame.K_ESCAPE:
+                    if settings_mode == "controls":
+                        settings_mode = "main"
+                    else:
+                        settings_open = False
+            
+            if s_event.type == pygame.MOUSEBUTTONDOWN and s_event.button == 1:
+                if settings_mode == "main":
+                    if back_btn.collidepoint(smx, smy):
+                        settings_open = False
+                    elif br_minus_btn.collidepoint(smx, smy):
+                        brightness = max(0, brightness - 10)
+                    elif br_plus_btn.collidepoint(smx, smy):
+                        brightness = min(255, brightness + 10)
+                    elif fps_minus_btn.collidepoint(smx, smy):
+                        target_fps = max(30, target_fps - 10)
+                    elif fps_plus_btn.collidepoint(smx, smy):
+                        target_fps = min(240, target_fps + 10)
+                    elif fps_toggle_btn.collidepoint(smx, smy):
+                        show_fps_counter = not show_fps_counter
+                    elif controls_btn.collidepoint(smx, smy):
+                        settings_mode = "controls"
+                else:
+                    if back_btn.collidepoint(smx, smy):
+                        settings_mode = "main"
+
+        if not running:
+            break
+
+        screen.blit(bg_image, (0, 0))
+        screen.blit(settings_surf, (0, 0))
+        screen.blit(settings_title, (width // 2 - settings_title.get_width() // 2, 100))
+
+        if settings_mode == "main":
+            br_val_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
+            screen.blit(br_val_text, (width // 2 - br_val_text.get_width() // 2, row_y[0] + 10))
+            draw_button(screen, br_minus_btn, "-", br_minus_btn.collidepoint(smx, smy))
+            draw_button(screen, br_plus_btn, "+", br_plus_btn.collidepoint(smx, smy))
+            
+            fps_val_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
+            screen.blit(fps_val_text, (width // 2 - fps_val_text.get_width() // 2, row_y[1] + 10))
+            draw_button(screen, fps_minus_btn, "-", fps_minus_btn.collidepoint(smx, smy))
+            draw_button(screen, fps_plus_btn, "+", fps_plus_btn.collidepoint(smx, smy))
+            
+            fps_count_label = f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}"
+            draw_button(screen, fps_toggle_btn, fps_count_label, fps_toggle_btn.collidepoint(smx, smy))
+            draw_button(screen, controls_btn, "Controls", controls_btn.collidepoint(smx, smy))
+
+        elif settings_mode == "controls":
+            controls_title = option_font.render("CONTROLS", True, (255, 255, 255))
+            screen.blit(controls_title, (width // 2 - controls_title.get_width() // 2, 220))
+            controls_lines = [
+                "W / A / S / D - Move",
+                "Mouse - Aim / Interact",
+                "SPACE - Pickup item / Interact",
+                "ESC - Pause / Back",
+                "MOUSE LEFT - Select / Toggle",
+            ]
+            for idx, line in enumerate(controls_lines):
+                line_surf = option_font.render(line, True, (220, 220, 220))
+                screen.blit(line_surf, (width // 2 - line_surf.get_width() // 2, 290 + idx * 45))
+
+        draw_button(screen, back_btn, "Back", back_btn.collidepoint(smx, smy))
+        draw_custom_cursor(screen, smx, smy)
+        pygame.display.flip()
+        clock.tick(60)
+
+# --- Hlavní menu (Main Menu) ---
+def show_main_menu(screen, clock):
+    global running
+    
+    menu_running = True
+    bg_img = pygame.Surface((width, height))
+    bg_img.fill((10, 15, 30)) # Tmavě modré pozadí pro menu
+    
+    # Přidáme jemný gradient nebo texturu na pozadí
+    for i in range(height):
+        col = (10, 15 + i // 40, 30 + i // 20)
+        pygame.draw.line(bg_img, col, (0, i), (width, i))
+    
+    # Přidáme pár ambientních částic do menu pro efekt
+    menu_particles = []
+    for _ in range(50):
+        menu_particles.append({
+            'x': random.randint(0, width),
+            'y': random.randint(0, height),
+            'speed': random.uniform(0.2, 0.8),
+            'radius': random.uniform(1, 3)
+        })
+
+    btn_w, btn_h = 340, 70
+    btn_x = width - btn_w - 150
+    # Posuneme vše výše (odečteme více od svislého středu)
+    play_btn     = pygame.Rect(btn_x, height // 2 - 120,       btn_w, btn_h)
+    settings_btn = pygame.Rect(btn_x, height // 2 - 120 + 100, btn_w, btn_h)
+    quit_btn     = pygame.Rect(btn_x, height // 2 - 120 + 200, btn_w, btn_h)
+
+
+
+    while menu_running:
+        mx, my = pygame.mouse.get_pos()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+                menu_running = False
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if play_btn.collidepoint(mx, my):
+                    return "PLAYING"
+                elif settings_btn.collidepoint(mx, my):
+                    show_settings_menu(screen, clock, bg_img)
+                elif quit_btn.collidepoint(mx, my):
+                    running = False
+                    menu_running = False
+
+        if not running:
+            break
+
+        # --- Pulzující efekt tmavého pozadí ---
+        pulse_time = pygame.time.get_ticks() / 1000.0
+        pulse_val = (math.sin(pulse_time * 1.5) + 1) / 2 # Hodnota 0 až 1
+        
+        # Vykreslení pozadí a částic
+        screen.blit(bg_img, (0, 0))
+        
+        # Přidáme tmavý pulzující overlay pro hloubku
+        pulse_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+        pulse_alpha = int(40 + 40 * pulse_val) # Pulzuje mezi 40 a 80
+        pulse_surf.fill((0, 0, 5, pulse_alpha))
+        screen.blit(pulse_surf, (0, 0))
+
+        for p in menu_particles:
+
+            p['y'] -= p['speed']
+            if p['y'] < -10: p['y'] = height + 10
+            pygame.draw.circle(screen, (50, 100, 200), (int(p['x']), int(p['y'])), int(p['radius']))
+
+        # Titulek
+        title_surf = menu_title_font.render("THE LABYRINTH", True, (255, 255, 255))
+        title_x = width - title_surf.get_width() - 150
+        title_y = height // 2 - 500
+        
+        # Záře pod titulkem
+        glow_surf = menu_title_font.render("THE LABYRINTH", True, (50, 150, 255))
+        for offset in range(1, 5):
+            screen.blit(glow_surf, (title_x + offset, title_y + offset))
+        screen.blit(title_surf, (title_x, title_y))
+
+
+
+        # Tlačítka
+        draw_button(screen, play_btn,     "PLAY",     play_btn.collidepoint(mx, my))
+        draw_button(screen, settings_btn, "SETTINGS", settings_btn.collidepoint(mx, my))
+        draw_button(screen, quit_btn,     "QUIT",     quit_btn.collidepoint(mx, my))
+
+        draw_custom_cursor(screen, mx, my)
+        pygame.display.flip()
+        clock.tick(60)
+    
+    return "QUIT"
+
+# --- Obrazovka Inventáře (Inventory Menu) ---
+def show_inventory(screen, clock, bg_copy):
+    global running, inventory
+    
+    # Rozmazání pozadí pro lepší čitelnost (blur efekt)
+    bg_copy = pygame.transform.smoothscale(bg_copy, (width // 10, height // 10))
+    bg_copy = pygame.transform.smoothscale(bg_copy, (width, height))
+
+    inventory_open = True
+
+    inv_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+    inv_surf.fill((0, 0, 10, 245)) # Tmavší a méně průhledný podklad
+
+    
+    inv_title_font = pygame.font.SysFont(None, 100)
+    section_font = pygame.font.SysFont(None, 60)
+    item_font = pygame.font.SysFont(None, 45)
+    
+    while inventory_open:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+                inventory_open = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_b or event.key == pygame.K_ESCAPE:
+                    inventory_open = False
+        
+        if not running:
+            break
+            
+        screen.blit(bg_copy, (0, 0))
+        screen.blit(inv_surf, (0, 0))
+        
+        # Nadpis inventáře
+        title = inv_title_font.render("INVENTORY", True, (255, 255, 255))
+        screen.blit(title, (width // 2 - title.get_width() // 2, 80))
+        
+        # Rozdělení na sekce: MISC (střed) a UPGRADES (vpravo)
+        misc_x = width // 2 - 200
+        upgrades_x = width // 2 + 300
+        start_y = 220
+        
+        # Sekce MISC
+        misc_title = section_font.render("MISC ITEMS", True, (150, 200, 255))
+        screen.blit(misc_title, (misc_x, start_y))
+        pygame.draw.line(screen, (70, 100, 180), (misc_x, start_y + 50), (misc_x + 300, start_y + 50), 2)
+        
+        misc_items = [item for item in inventory if item == "Key"]
+        for idx, item in enumerate(misc_items):
+            if item == "Key":
+                text = item_font.render("Golden Key", True, (255, 215, 0))
+                screen.blit(textura_klic_icon, (misc_x, start_y + 80 + idx * 70))
+                screen.blit(text, (misc_x + 70, start_y + 90 + idx * 70))
+        
+        if not misc_items:
+            empty_text = item_font.render("No misc items...", True, (100, 100, 120))
+            screen.blit(empty_text, (misc_x, start_y + 80))
+            
+        # Sekce UPGRADES
+        upgrades_title = section_font.render("UPGRADES", True, (180, 255, 200))
+        screen.blit(upgrades_title, (upgrades_x, start_y))
+        pygame.draw.line(screen, (70, 180, 120), (upgrades_x, start_y + 50), (upgrades_x + 300, start_y + 50), 2)
+        
+        upgrade_items = [item for item in inventory if item == "Glitter Slime Ball"]
+        for idx, item in enumerate(upgrade_items):
+            if item == "Glitter Slime Ball":
+                text = item_font.render("Glitter Slime Ball", True, (180, 255, 255))
+                screen.blit(textura_glitter_ball, (upgrades_x, start_y + 80 + idx * 70))
+                screen.blit(text, (upgrades_x + 70, start_y + 90 + idx * 70))
+                desc = item_font.render("(Passive: Increased Speed)", True, (120, 180, 180))
+                screen.blit(desc, (upgrades_x + 70, start_y + 120 + idx * 70))
+        
+        if not upgrade_items:
+            empty_text = item_font.render("No upgrades...", True, (100, 120, 100))
+            screen.blit(empty_text, (upgrades_x, start_y + 80))
+            
+        draw_custom_cursor(screen, *pygame.mouse.get_pos())
+        pygame.display.flip()
+        clock.tick(60)
+
 # Varianty podlahy pro vizuální rozmanitost (aby podlaha nepůsobila jednotvárně, vytvoříme zrcadlové kopie textury)
+
 floor_variations = [
     floor_texture,
     pygame.transform.flip(floor_texture, True, False), # Převráceno zleva doprava
     pygame.transform.flip(floor_texture, False, True), # Převráceno shora dolů
     pygame.transform.flip(floor_texture, True, True)   # Převráceno v obou osách
 ]
+
+game_state = "MAIN_MENU"
+
+
 
 # Načtení konkrétních textur do proměnných (s využitím naší bezpečné funkce)
 textura_zed = get_texture("wall.png", (100, 100, 100), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
@@ -229,7 +547,11 @@ textura_nepritel = get_texture("enemy.png", enemy_color, (enemy_draw_size, enemy
 textura_klic_icon = get_texture("key.png", (255, 215, 0), (50, 50))
 textura_slime_orb = get_texture("slime_orb.png", (0, 188, 212), (30, 30))
 textura_slime_orb_eyes = get_texture("slime_orb_eyes.png", (33, 150, 243), (50, 50))
+textura_glitter_ball = get_texture("glitter_slime_ball.png", (180, 255, 255), (50, 50), pixelate_size=(16, 16), colorkey=(0, 0, 0))
+
+
 textura_healing_platform = get_texture("healing_platform.png", (0, 100, 220), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
+
 # --- Konec načtení textur ---
 
 # Vytvoření předvykresleného povrchu pro bludiště (optimalizace pro zvýšení plynulosti hry)
@@ -280,8 +602,15 @@ for _ in range(150):
 
 running = True
 
+# --- Spuštění hlavního menu před začátkem hry ---
+if game_state == "MAIN_MENU":
+    game_state = show_main_menu(screen, clock)
+    if game_state == "QUIT":
+        running = False
+
 # Hlavní herní smyčka
 while running:
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -289,48 +618,10 @@ while running:
 # Esc - Pause screen & Inventory screen ("B")
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_b:
-                inventory_open = True
-                inv_surf = pygame.Surface((width, height), pygame.SRCALPHA)
-                inv_surf.fill((0, 0, 0, 230))
-                
-                inv_font = pygame.font.SysFont(None, 100)
-                item_font = pygame.font.SysFont(None, 50)
-                
                 bg_copy = screen.copy()
-                
-                while inventory_open:
-                    for i_event in pygame.event.get():
-                        if i_event.type == pygame.QUIT:
-                            running = False
-                            inventory_open = False
-                        if i_event.type == pygame.KEYDOWN:
-                            if i_event.key == pygame.K_b or i_event.key == pygame.K_ESCAPE:
-                                inventory_open = False
-                    
-                    if not running:
-                        break
-                    
-                    screen.blit(bg_copy, (0, 0))
-                    screen.blit(inv_surf, (0, 0))
-                    
-                    title = inv_font.render("INVENTORY", True, (255, 255, 255))
-                    screen.blit(title, (width // 2 - title.get_width() // 2, 100))
-                    
-                    start_y = 250
-                    for i, item in enumerate(inventory):
-                        if item == "Key":
-                            text = item_font.render("- Golden Key", True, (255, 215, 0))
-                            screen.blit(text, (width // 2 - 150, start_y + i * 80))
-                            screen.blit(textura_klic_icon, (width // 2 - 220, start_y + i * 80 - 10))
-                    
-                    if len(inventory) == 0:
-                        empty_text = item_font.render("Your inventory is empty...", True, (150, 150, 150))
-                        screen.blit(empty_text, (width // 2 - empty_text.get_width() // 2, start_y))
-                        
-                    pygame.display.flip()
-                    clock.tick(60)
-
+                show_inventory(screen, clock, bg_copy)
             if event.key == pygame.K_SPACE:
+
                 # Mechanika sbírání předmětů
                 pickup_range = 150 # Dosah pro sebrání předmětu
                 player_cx = x + size / 2
@@ -352,41 +643,7 @@ while running:
                 paused = True
                 pause_surf = pygame.Surface((width, height), pygame.SRCALPHA)
                 pause_surf.fill((0, 0, 0, 190))
-
-                pause_font = pygame.font.SysFont(None, 110)
-                btn_font   = pygame.font.SysFont(None, 54)
-
                 pause_text = pause_font.render("PAUSED", True, (255, 255, 255))
-
-                # --- Pomocná funkce pro kreslení tlačítka s hover efektem ---
-                def draw_pause_button(surf, rect, label, hovered):
-                    # Barvy pozadí tlačítka
-                    base_col   = (30,  40,  70, 210)
-                    hover_col  = (50,  80, 160, 230)
-                    border_col = (80, 140, 255) if hovered else (60, 80, 140)
-                    fill_col   = hover_col if hovered else base_col
-
-                    # Poloprůhledný podklad
-                    btn_bg = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-                    pygame.draw.rect(btn_bg, fill_col, btn_bg.get_rect(), border_radius=14)
-                    surf.blit(btn_bg, rect.topleft)
-
-                    # Rámeček
-                    pygame.draw.rect(surf, border_col, rect, width=2, border_radius=14)
-
-                    # Jemný vnější zásvit při hover
-                    if hovered:
-                        glow_s = pygame.Surface((rect.width + 20, rect.height + 20), pygame.SRCALPHA)
-                        pygame.draw.rect(glow_s, (80, 160, 255, 45), glow_s.get_rect(), border_radius=18)
-                        surf.blit(glow_s, (rect.x - 10, rect.y - 10))
-
-                    # Text tlačítka
-                    lbl_col = (230, 240, 255) if hovered else (180, 190, 220)
-                    lbl_surf = btn_font.render(label, True, lbl_col)
-                    surf.blit(lbl_surf, (
-                        rect.x + (rect.width  - lbl_surf.get_width())  // 2,
-                        rect.y + (rect.height - lbl_surf.get_height()) // 2
-                    ))
 
                 # Rozměry a pozice tří tlačítek hlavní pauzy
                 btn_w, btn_h = 340, 64
@@ -400,140 +657,21 @@ while running:
 
                 while paused:
                     mx, my = pygame.mouse.get_pos()
-
                     for p_event in pygame.event.get():
                         if p_event.type == pygame.QUIT:
                             running = False
                             paused = False
-
                         if p_event.type == pygame.KEYDOWN:
                             if p_event.key == pygame.K_ESCAPE:
                                 paused = False
-
                         if p_event.type == pygame.MOUSEBUTTONDOWN and p_event.button == 1:
                             if btn_resume.collidepoint(mx, my):
                                 paused = False
-
+                            elif btn_settings.collidepoint(mx, my):
+                                show_settings_menu(screen, clock, bg_copy)
                             elif btn_quit.collidepoint(mx, my):
                                 running = False
                                 paused = False
-
-                            elif btn_settings.collidepoint(mx, my):
-                                # --- Obrazovka nastavení ---
-                                settings_open = True
-                                settings_surf = pygame.Surface((width, height), pygame.SRCALPHA)
-                                settings_surf.fill((0, 0, 0, 200))
-
-                                settings_font = pygame.font.SysFont(None, 80)
-                                option_font   = pygame.font.SysFont(None, 40)
-
-                                settings_title    = settings_font.render("SETTINGS", True, (255, 255, 255))
-                                
-                                # Definice tlačítek pro nastavení
-                                btn_sz = 60
-                                row_y = [250, 340, 430, 520]
-                                
-                                # Brightness buttons
-                                br_minus_btn = pygame.Rect(width // 2 - 200, row_y[0], btn_sz, btn_sz)
-                                br_plus_btn  = pygame.Rect(width // 2 + 150, row_y[0], btn_sz, btn_sz)
-                                
-                                # FPS buttons
-                                fps_minus_btn = pygame.Rect(width // 2 - 200, row_y[1], btn_sz, btn_sz)
-                                fps_plus_btn  = pygame.Rect(width // 2 + 150, row_y[1], btn_sz, btn_sz)
-                                
-                                # FPS Counter toggle button
-                                fps_toggle_btn = pygame.Rect(width // 2 - 200, row_y[2], 400, btn_sz)
-                                
-                                # Controls button
-                                controls_btn = pygame.Rect(width // 2 - 200, row_y[3], 400, btn_sz)
-
-                                # Tlačítko Back v nastavení
-                                back_btn = pygame.Rect(width // 2 - 170, height - 110, 340, 64)
-
-                                settings_mode = "main"
-
-                                while settings_open:
-                                    smx, smy = pygame.mouse.get_pos()
-
-                                    for s_event in pygame.event.get():
-                                        if s_event.type == pygame.QUIT:
-                                            running = False
-                                            settings_open = False
-                                            paused = False
-                                        if s_event.type == pygame.KEYDOWN:
-                                            if s_event.key == pygame.K_ESCAPE:
-                                                if settings_mode == "controls":
-                                                    settings_mode = "main"
-                                                else:
-                                                    settings_open = False
-                                        
-                                        if s_event.type == pygame.MOUSEBUTTONDOWN and s_event.button == 1:
-                                            if settings_mode == "main":
-                                                if back_btn.collidepoint(smx, smy):
-                                                    settings_open = False
-                                                elif br_minus_btn.collidepoint(smx, smy):
-                                                    brightness = max(0, brightness - 10)
-                                                elif br_plus_btn.collidepoint(smx, smy):
-                                                    brightness = min(255, brightness + 10)
-                                                elif fps_minus_btn.collidepoint(smx, smy):
-                                                    target_fps = max(30, target_fps - 10)
-                                                elif fps_plus_btn.collidepoint(smx, smy):
-                                                    target_fps = min(240, target_fps + 10)
-                                                elif fps_toggle_btn.collidepoint(smx, smy):
-                                                    show_fps_counter = not show_fps_counter
-                                                elif controls_btn.collidepoint(smx, smy):
-                                                    settings_mode = "controls"
-                                            else:
-                                                if back_btn.collidepoint(smx, smy):
-                                                    settings_mode = "main"
-
-                                    if not running:
-                                        break
-
-                                    screen.blit(bg_copy, (0, 0))
-                                    screen.blit(settings_surf, (0, 0))
-                                    screen.blit(settings_title,   (width // 2 - settings_title.get_width()   // 2, 100))
-
-                                    if settings_mode == "main":
-                                        # Render Brightness
-                                        br_val_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
-                                        screen.blit(br_val_text, (width // 2 - br_val_text.get_width() // 2, row_y[0] + 10))
-                                        draw_pause_button(screen, br_minus_btn, "-", br_minus_btn.collidepoint(smx, smy))
-                                        draw_pause_button(screen, br_plus_btn, "+", br_plus_btn.collidepoint(smx, smy))
-                                        
-                                        # Render FPS
-                                        fps_val_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
-                                        screen.blit(fps_val_text, (width // 2 - fps_val_text.get_width() // 2, row_y[1] + 10))
-                                        draw_pause_button(screen, fps_minus_btn, "-", fps_minus_btn.collidepoint(smx, smy))
-                                        draw_pause_button(screen, fps_plus_btn, "+", fps_plus_btn.collidepoint(smx, smy))
-                                        
-                                        # Render FPS Counter Toggle
-                                        fps_count_label = f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}"
-                                        draw_pause_button(screen, fps_toggle_btn, fps_count_label, fps_toggle_btn.collidepoint(smx, smy))
-
-                                        # Controls button
-                                        draw_pause_button(screen, controls_btn, "Controls", controls_btn.collidepoint(smx, smy))
-
-                                    elif settings_mode == "controls":
-                                        controls_title = option_font.render("CONTROLS", True, (255, 255, 255))
-                                        screen.blit(controls_title, (width // 2 - controls_title.get_width() // 2, 220))
-                                        controls_lines = [
-                                            "W / A / S / D - Move",
-                                            "Mouse - Aim / Shoot / Interact",
-                                            "SPACE - Pickup item / Interact",
-                                            "ESC - Pause / Back",
-                                            "MOUSE LEFT - Select / Toggle",
-                                        ]
-                                        for idx, line in enumerate(controls_lines):
-                                            line_surf = option_font.render(line, True, (220, 220, 220))
-                                            screen.blit(line_surf, (width // 2 - line_surf.get_width() // 2, 290 + idx * 45))
-
-                                    # Tlačítko Back
-                                    draw_pause_button(screen, back_btn, "Back", back_btn.collidepoint(smx, smy))
-
-                                    draw_custom_cursor(screen, smx, smy)
-                                    pygame.display.flip()
-                                    clock.tick(60)
 
                     if not running:
                         break
@@ -541,8 +679,6 @@ while running:
                     # --- Vykreslení pauza obrazovky ---
                     screen.blit(bg_copy, (0, 0))
                     screen.blit(pause_surf, (0, 0))
-
-                    # Nadpis
                     screen.blit(pause_text, (width // 2 - pause_text.get_width() // 2, height // 2 - 160))
 
                     # Jemná oddělovací linka pod nadpisem
@@ -550,15 +686,16 @@ while running:
                     pygame.draw.line(screen, (70, 100, 180), (width // 2 - 170, line_y), (width // 2 + 170, line_y), 1)
 
                     # Tři tlačítka s hover efektem
-                    draw_pause_button(screen, btn_resume,   "Resume",   btn_resume.collidepoint(mx, my))
-                    draw_pause_button(screen, btn_settings, "Settings", btn_settings.collidepoint(mx, my))
-                    draw_pause_button(screen, btn_quit,     "Quit",     btn_quit.collidepoint(mx, my))
+                    draw_button(screen, btn_resume,   "Resume",   btn_resume.collidepoint(mx, my))
+                    draw_button(screen, btn_settings, "Settings", btn_settings.collidepoint(mx, my))
+                    draw_button(screen, btn_quit,     "Quit",     btn_quit.collidepoint(mx, my))
                     draw_custom_cursor(screen, mx, my)
 
                     pygame.display.flip()
                     clock.tick(60)
 
                 pygame.mouse.set_visible(False)
+
             
     if not running:
         break
@@ -579,9 +716,12 @@ while running:
     player_moved = False # Proměnná sledující, zda se hráč v tomto snímku pohnul
     
     if distance > 1.0: # Pokud nejsme přesně na myši, budeme se pohybovat
-        speed = min(5, distance) # Omezíme rychlost na maximálně 5 pixelů (aby hráč nevyletěl moc rychle)
+        # Vypočítáme aktuální rychlost (sprint pokud máme Glitter Slime Ball)
+        current_speed = 8 if "Glitter Slime Ball" in inventory else 5
+        speed = min(current_speed, distance) # Omezíme rychlost na maximálně 5 pixelů (aby hráč nevyletěl moc rychle)
         move_x = (dx / distance) * speed # Posun v ose X
         move_y = (dy / distance) * speed # Posun v ose Y
+
 
         # Pohyb a kontrola kolize (nárazu do zdi) v horizontálním směru (osa X)
         new_x = x + move_x
@@ -1105,8 +1245,13 @@ while running:
                 icon_copy = textura_klic_icon.copy()
                 icon_copy.set_alpha(notif['alpha'])
                 screen.blit(icon_copy, (draw_x + 10, notif_y + (bg_height - 50) // 2))
+            elif notif['type'] == "Glitter Slime Ball":
+                icon_copy = textura_glitter_ball.copy()
+                icon_copy.set_alpha(notif['alpha'])
+                screen.blit(icon_copy, (draw_x + 10, notif_y + (bg_height - 50) // 2))
                 
             screen.blit(notif_text, (draw_x + 70, notif_y + (bg_height - notif_text.get_height()) // 2))
+
             
             # Posuneme Y pozici pro další oznámení (aby se řadily nad sebe)
             notif_y -= (bg_height + 10)

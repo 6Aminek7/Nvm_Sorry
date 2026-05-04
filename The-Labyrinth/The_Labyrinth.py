@@ -1,8 +1,10 @@
-import pygame
-import math
-import sys
-import random
-import os
+import pygame    # Hlavní knihovna pro tvorbu her
+import math      # Matematické funkce (sinus, hypotenusa atd.)
+import sys       # Systémové funkce (ukončení programu)
+import random    # Generování náhodných čísel
+import os        # Práce se soubory a složkami
+import json      # Práce s formátem JSON (ukládání pozic)
+import copy      # Pro hluboké kopírování objektů
 
 # Inicializace všech modulů Pygame (nutné před voláním jiných Pygame funkcí)
 pygame.init()
@@ -126,25 +128,149 @@ for row_idx, row in enumerate(maze_layout):
             # Nastavení startovní pozice nepřítele (s ohledem na vycentrování)
             start_enemy_x = int(col_idx * block_size + (block_size - enemy_size) / 2)
             start_enemy_y = int(row_idx * block_size + (block_size - enemy_size) / 2)
-        elif cell == "K":
-            # Umístění klíče doprostřed bloku na mapě
-            item_x = int(col_idx * block_size + block_size / 2)
-            item_y = int(row_idx * block_size + block_size / 2)
-            items_on_ground.append({'type': 'Key', 'x': item_x, 'y': item_y})
         elif cell == "H":
             # Umístění léčivé platformy (checkpoint) na pozici bloku v mapě
             hp_rect = pygame.Rect(
-                int(col_idx * block_size),
-                int(row_idx * block_size),
-                block_size,
-                block_size
+                int(col_idx * block_size), # X souřadnice levého horního rohu
+                int(row_idx * block_size), # Y souřadnice levého horního rohu
+                block_size,                # Šířka bloku
+                block_size                 # Výška bloku
             )
-            healing_platforms.append(hp_rect)
-        elif cell == "S":
-            # Umístění Glitter Slime Ball na mapu
-            item_x = int(col_idx * block_size + block_size / 2)
-            item_y = int(row_idx * block_size + block_size / 2)
-            items_on_ground.append({'type': 'Glitter Slime Ball', 'x': item_x, 'y': item_y})
+            healing_platforms.append(hp_rect) # Přidání do seznamu platforem
+
+# --- Herní stav (Global variables) ---
+current_save_slot = None # Aktuálně vybraný slot pro ukládání
+last_saved_platform_idx = -1 # ID poslední platformy, kde se ukládalo
+
+def reset_game_world():
+    """Resetuje všechny herní proměnné na výchozí hodnoty pro novou hru."""
+    global x, y, enemy_x, enemy_y, player_health, inventory, items_on_ground
+    global pickup_notifications, healing_platform_glow, checkpoint_x, checkpoint_y
+    global camera_x, camera_y, wobble_time, wobble_amp, particles
+
+    # Nastavení hráče na jeho startovní souřadnice nalezené v mapě
+    x, y = start_x, start_y
+    # Nastavení nepřítele na jeho startovní pozici
+    enemy_x, enemy_y = start_enemy_x, start_enemy_y
+    # Výchozí checkpoint je startovní pozice
+    checkpoint_x, checkpoint_y = start_x, start_y
+    
+    # Reset základních parametrů hráče
+    player_health = 6       # Plný počet životů
+    inventory = []          # Prázdný inventář
+    items_on_ground = []    # Vyčištění předmětů na zemi před novým načtením
+    pickup_notifications = [] # Vyčištění notifikací v rohu
+    healing_platform_glow = [] # Vyčištění efektů platforem
+    
+    # Reset animačních proměnných
+    wobble_time = 0.0 # Časovač pro pohupování
+    wobble_amp = 0.0  # Síla pohupování (0 = stojí)
+    particles = []    # Vyčištění seznamu částic
+
+    # Reset kamery tak, aby vycentrovala hráče
+    camera_x = x - (width / 2) / zoom
+    camera_y = y - (height / 2) / zoom
+
+    # Znovu-procházení mapy a umístění předmětů na zem (klíče, upgrady)
+    for row_idx, row in enumerate(maze_layout):
+        for col_idx, cell in enumerate(row):
+            if cell == "K": # Písmeno K značí klíč
+                item_x = int(col_idx * block_size + block_size / 2)
+                item_y = int(row_idx * block_size + block_size / 2)
+                items_on_ground.append({'type': 'Key', 'x': item_x, 'y': item_y})
+            elif cell == "S": # Písmeno S značí Glitter Slime Ball
+                item_x = int(col_idx * block_size + block_size / 2)
+                item_y = int(row_idx * block_size + block_size / 2)
+                items_on_ground.append({'type': 'Glitter Slime Ball', 'x': item_x, 'y': item_y})
+
+def save_game(slot_id, slot_name=None):
+    """Uloží aktuální stav hry do JSON souboru."""
+    if slot_id is None: return # Pokud není vybrán slot, nic se neukládá
+    
+    # Pokud slot_name není zadán (při automatickém ukládání), pokusíme se ho zachovat z existujícího uložení
+    if slot_name is None:
+        existing = load_save_info(slot_id)
+        slot_name = existing['name'] if existing else f"Slot {slot_id}"
+
+    # Vytvoření slovníku se všemi daty k uložení
+    save_data = {
+        "name": slot_name,               # Jméno slotu zobrazené v menu
+        "player_x": x,                   # Pozice X hráče
+        "player_y": y,                   # Pozice Y hráče
+        "enemy_x": enemy_x,               # Pozice X nepřítele
+        "enemy_y": enemy_y,               # Pozice Y nepřítele
+        "player_health": player_health,  # Aktuální životy
+        "inventory": inventory,          # Seznam věcí v inventáři
+        "checkpoint_x": checkpoint_x,    # Poslední uložený checkpoint X
+        "checkpoint_y": checkpoint_y,    # Poslední uložený checkpoint Y
+        "items_on_ground": items_on_ground, # Zbývající věci na zemi v bludišti
+        "camera_x": camera_x,            # Pozice kamery X
+        "camera_y": camera_y             # Pozice kamery Y
+    }
+    
+    # Cesta k souboru (uloženo ve složce "saves")
+    path = os.path.join(os.path.dirname(__file__), "saves", f"save_{slot_id}.json")
+    try:
+        # Zápis do souboru ve formátu JSON s kódováním UTF-8
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(save_data, f, indent=4, ensure_ascii=False)
+        print(f"Hra uložena do slotu {slot_id}")
+    except Exception as e:
+        # Vypíše chybu, pokud se zápis nepovede (např. chybějící oprávnění)
+        print(f"Chyba při ukládání: {e}")
+
+def load_game(slot_id):
+    """Načte kompletní stav hry z JSON souboru."""
+    global x, y, enemy_x, enemy_y, player_health, inventory, items_on_ground
+    global checkpoint_x, checkpoint_y, camera_x, camera_y, current_save_slot
+    
+    # Cesta k souboru uložené pozice
+    path = os.path.join(os.path.dirname(__file__), "saves", f"save_{slot_id}.json")
+    if not os.path.exists(path):
+        return False # Pokud soubor neexistuje, načítání selže
+        
+    try:
+        # Otevření a přečtení JSON dat
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        # Přiřazení načtených hodnot globálním proměnným hry
+        x = data["player_x"]
+        y = data["player_y"]
+        enemy_x = data["enemy_x"]
+        enemy_y = data["enemy_y"]
+        player_health = data["player_health"]
+        inventory = data["inventory"]
+        checkpoint_x = data["checkpoint_x"]
+        checkpoint_y = data["checkpoint_y"]
+        items_on_ground = data["items_on_ground"]
+        camera_x = data["camera_x"]
+        camera_y = data["camera_y"]
+        
+        # Nastavení aktuálně aktivního slotu
+        current_save_slot = slot_id
+        return True # Úspěšně načteno
+    except Exception as e:
+        # Vypíše chybu při poškození souboru nebo nesprávném formátu
+        print(f"Chyba při načítání: {e}")
+        return False
+
+def load_save_info(slot_id):
+    """Načte pouze základní informace o uložené hře (pro zobrazení v menu)."""
+    path = os.path.join(os.path.dirname(__file__), "saves", f"save_{slot_id}.json")
+    if not os.path.exists(path):
+        return None # Slot je prázdný
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f) # Vrátí data jako slovník
+    except:
+        return None # Chyba při čtení
+
+def delete_save(slot_id):
+    """Smaže soubor s uloženou hrou daného slotu."""
+    path = os.path.join(os.path.dirname(__file__), "saves", f"save_{slot_id}.json")
+    if os.path.exists(path):
+        os.remove(path) # Odstranění souboru z disku
 
 
 # Přiřazení počátečních hodnot aktuálním souřadnicím
@@ -176,60 +302,76 @@ def get_texture(filename, default_color, size_tuple, pixelate_size=None, colorke
             # Načteme obrázek a zachováme jeho průhlednost (alpha kanál)
             img = pygame.image.load(path).convert_alpha()
             if colorkey:
+                # Nastavení barvy, která má být brána jako průhledná
                 img.set_colorkey(colorkey)
             if pixelate_size:
-
                 # Záměrně obrázek nejdříve zmenšíme, aby vznikl retro pixel artový efekt
                 img = pygame.transform.scale(img, pixelate_size)
-            # Nakonec obrázek přizpůsobíme požadované velikosti a vrátíme
+            # Nakonec obrázek přizpůsobíme požadované velikosti v pixelech a vrátíme
             return pygame.transform.scale(img, size_tuple)
         except Exception as e:
             # Vypíšeme chybu do konzole, pokud se obrázek nepodaří načíst správně
             print(f"Chyba při načítání {filename}: {e}")
             
-    # Pokud soubor neexistuje nebo nastala chyba, vytvoříme náhradní obdélník s výchozí barvou
+    # Pokud soubor neexistuje nebo nastala chyba, vytvoříme náhradní plochu s výchozí barvou
     surf = pygame.Surface(size_tuple, pygame.SRCALPHA)
     surf.fill(default_color)
     return surf
 
-# Vykreslení vlastního kurzoru na obrazovce
+# Vykreslení vlastního kurzoru na obrazovce (místo systémové šipky)
 def draw_custom_cursor(surf, x, y, size=10):
-    cursor_color = (180, 220, 255)
-    highlight_color = (255, 255, 255)
+    cursor_color = (180, 220, 255)      # Světle modrá barva kurzoru
+    highlight_color = (255, 255, 255)   # Bílá barva pro středový bod
+    # Kreslení kružnice (obrysu)
     pygame.draw.circle(surf, cursor_color, (x, y), size, 2)
+    # Kreslení vodorovné linky zaměřovače
     pygame.draw.line(surf, cursor_color, (x - size, y), (x + size, y), 1)
+    # Kreslení svislé linky zaměřovače
     pygame.draw.line(surf, cursor_color, (x, y - size), (x, y + size), 1)
+    # Kreslení malého bodu uprostřed
     pygame.draw.circle(surf, highlight_color, (x, y), 2)
 
 # --- Pomocná funkce pro kreslení tlačítka s hover efektem ---
 def draw_button(surf, rect, label, hovered):
-    # Barvy pozadí tlačítka
-    base_col   = (30,  40,  70, 210)
-    hover_col  = (50,  80, 160, 230)
-    border_col = (80, 140, 255) if hovered else (60, 80, 140)
-    fill_col   = hover_col if hovered else base_col
+    # Definice barev pro normální stav a stav při přejetí myší (hover)
+    base_col   = (30,  40,  70, 210)  # Tmavě modrá (poloprůhledná)
+    hover_col  = (50,  80, 160, 230) # Jasnější modrá při najetí myší
+    border_col = (80, 140, 255) if hovered else (60, 80, 140) # Barva rámečku
+    fill_col   = hover_col if hovered else base_col # Výběr barvy pozadí
 
-    # Poloprůhledný podklad
+    # Vytvoření plochy pro pozadí tlačítka (podpora průhlednosti)
     btn_bg = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    # Kreslení zaobleného obdélníku pozadí
     pygame.draw.rect(btn_bg, fill_col, btn_bg.get_rect(), border_radius=14)
-    surf.blit(btn_bg, rect.topleft)
+    surf.blit(btn_bg, rect.topleft) # Vykreslení pozadí na hlavní plochu
 
-    # Rámeček
+    # Kreslení rámečku tlačítka
     pygame.draw.rect(surf, border_col, rect, width=2, border_radius=14)
 
-    # Jemný vnější zásvit při hover
+    # Přidání jemného vnějšího zásvitu, pokud je na tlačítko najeto myší
     if hovered:
         glow_s = pygame.Surface((rect.width + 20, rect.height + 20), pygame.SRCALPHA)
         pygame.draw.rect(glow_s, (80, 160, 255, 45), glow_s.get_rect(), border_radius=18)
         surf.blit(glow_s, (rect.x - 10, rect.y - 10))
 
-    # Text tlačítka
-    lbl_col = (230, 240, 255) if hovered else (180, 190, 220)
+    # Příprava a vycentrování textu tlačítka
+    lbl_col = (230, 240, 255) if hovered else (180, 190, 220) # Barva písma
     lbl_surf = btn_font.render(label, True, lbl_col)
     surf.blit(lbl_surf, (
-        rect.x + (rect.width  - lbl_surf.get_width())  // 2,
-        rect.y + (rect.height - lbl_surf.get_height()) // 2
+        rect.x + (rect.width  - lbl_surf.get_width())  // 2, # Centrování horizontálně
+        rect.y + (rect.height - lbl_surf.get_height()) // 2  # Centrování vertikálně
     ))
+
+def fade_to_black(screen, clock):
+    """Vytvoří plynulé zatmění obrazovky (fade-out) pro filmové přechody mezi menu."""
+    fade_surf = pygame.Surface((width, height)) # Plocha o velikosti celé obrazovky
+    fade_surf.fill((0, 0, 0)) # Černá barva
+    # Postupně zvyšujeme neprůhlednost (alpha) od 0 (průhledné) do 255 (neprůhledné)
+    for alpha in range(0, 255, 12):
+        fade_surf.set_alpha(alpha)
+        screen.blit(fade_surf, (0, 0)) # Překrytí obrazovky
+        pygame.display.flip() # Aktualizace zobrazení
+        clock.tick(60) # Omezení rychlosti animace
 
 
 # Výpočet vykreslovacích rozměrů objektů podle aktuálního přiblížení (zoomu)
@@ -259,16 +401,18 @@ def show_settings_menu(screen, clock, bg_image):
     global brightness, target_fps, show_fps_counter, running
     
     settings_open = True
+    # Vytvoření poloprůhledné černé plochy přes celou obrazovku
     settings_surf = pygame.Surface((width, height), pygame.SRCALPHA)
     settings_surf.fill((0, 0, 0, 200))
 
     settings_font = pygame.font.SysFont(None, 80)
     settings_title = settings_font.render("SETTINGS", True, (255, 255, 255))
     
-    # Definice tlačítek pro nastavení
+    # Definice rozměrů a pozic tlačítek pro nastavení
     btn_sz = 60
-    row_y = [250, 340, 430, 520]
+    row_y = [250, 340, 430, 520] # Výškové úrovně pro řádky nastavení
     
+    # Obdélníky pro interaktivní prvky (tlačítka a volby)
     br_minus_btn = pygame.Rect(width // 2 - 200, row_y[0], btn_sz, btn_sz)
     br_plus_btn  = pygame.Rect(width // 2 + 150, row_y[0], btn_sz, btn_sz)
     fps_minus_btn = pygame.Rect(width // 2 - 200, row_y[1], btn_sz, btn_sz)
@@ -277,64 +421,72 @@ def show_settings_menu(screen, clock, bg_image):
     controls_btn = pygame.Rect(width // 2 - 200, row_y[3], 400, btn_sz)
     back_btn = pygame.Rect(width // 2 - 170, height - 110, 340, 64)
 
-    settings_mode = "main"
+    settings_mode = "main" # Aktuální režim (hlavní nastavení nebo nápověda k ovládání)
 
     while settings_open:
-        smx, smy = pygame.mouse.get_pos()
+        smx, smy = pygame.mouse.get_pos() # Aktuální pozice myši
         for s_event in pygame.event.get():
             if s_event.type == pygame.QUIT:
                 running = False
                 settings_open = False
             if s_event.type == pygame.KEYDOWN:
                 if s_event.key == pygame.K_ESCAPE:
+                    # Pokud jsme v ovládání, vrátíme se do menu nastavení, jinak zavřeme menu
                     if settings_mode == "controls":
                         settings_mode = "main"
                     else:
                         settings_open = False
             
+            # Detekce kliknutí myší
             if s_event.type == pygame.MOUSEBUTTONDOWN and s_event.button == 1:
                 if settings_mode == "main":
                     if back_btn.collidepoint(smx, smy):
-                        settings_open = False
+                        settings_open = False # Zavřít nastavení
                     elif br_minus_btn.collidepoint(smx, smy):
-                        brightness = max(0, brightness - 10)
+                        brightness = max(0, brightness - 10) # Snížit jas
                     elif br_plus_btn.collidepoint(smx, smy):
-                        brightness = min(255, brightness + 10)
+                        brightness = min(255, brightness + 10) # Zvýšit jas
                     elif fps_minus_btn.collidepoint(smx, smy):
-                        target_fps = max(30, target_fps - 10)
+                        target_fps = max(30, target_fps - 10) # Snížit limit FPS
                     elif fps_plus_btn.collidepoint(smx, smy):
-                        target_fps = min(240, target_fps + 10)
+                        target_fps = min(240, target_fps + 10) # Zvýšit limit FPS
                     elif fps_toggle_btn.collidepoint(smx, smy):
-                        show_fps_counter = not show_fps_counter
+                        show_fps_counter = not show_fps_counter # Přepnout počítadlo FPS
                     elif controls_btn.collidepoint(smx, smy):
-                        settings_mode = "controls"
+                        settings_mode = "controls" # Přepnout na zobrazení ovládání
                 else:
+                    # Pokud jsme v ovládání, tlačítko zpět nás vrátí do menu nastavení
                     if back_btn.collidepoint(smx, smy):
                         settings_mode = "main"
 
         if not running:
             break
 
-        screen.blit(bg_image, (0, 0))
-        screen.blit(settings_surf, (0, 0))
-        screen.blit(settings_title, (width // 2 - settings_title.get_width() // 2, 100))
+        # Vykreslení prvků menu
+        screen.blit(bg_image, (0, 0)) # Pozadí
+        screen.blit(settings_surf, (0, 0)) # Poloprůhledný překryv
+        screen.blit(settings_title, (width // 2 - settings_title.get_width() // 2, 100)) # Nadpis
 
         if settings_mode == "main":
+            # Text pro Jas (Brightness)
             br_val_text = option_font.render(f"Brightness: {brightness}", True, (255, 255, 255))
             screen.blit(br_val_text, (width // 2 - br_val_text.get_width() // 2, row_y[0] + 10))
             draw_button(screen, br_minus_btn, "-", br_minus_btn.collidepoint(smx, smy))
             draw_button(screen, br_plus_btn, "+", br_plus_btn.collidepoint(smx, smy))
             
+            # Text pro FPS limit
             fps_val_text = option_font.render(f"FPS: {target_fps}", True, (255, 255, 255))
             screen.blit(fps_val_text, (width // 2 - fps_val_text.get_width() // 2, row_y[1] + 10))
             draw_button(screen, fps_minus_btn, "-", fps_minus_btn.collidepoint(smx, smy))
             draw_button(screen, fps_plus_btn, "+", fps_plus_btn.collidepoint(smx, smy))
             
+            # Tlačítko pro počítadlo FPS a vstup do ovládání
             fps_count_label = f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}"
             draw_button(screen, fps_toggle_btn, fps_count_label, fps_toggle_btn.collidepoint(smx, smy))
             draw_button(screen, controls_btn, "Controls", controls_btn.collidepoint(smx, smy))
 
         elif settings_mode == "controls":
+            # Zobrazení nápovědy k ovládání
             controls_title = option_font.render("CONTROLS", True, (255, 255, 255))
             screen.blit(controls_title, (width // 2 - controls_title.get_width() // 2, 220))
             controls_lines = [
@@ -348,10 +500,169 @@ def show_settings_menu(screen, clock, bg_image):
                 line_surf = option_font.render(line, True, (220, 220, 220))
                 screen.blit(line_surf, (width // 2 - line_surf.get_width() // 2, 290 + idx * 45))
 
+        # Tlačítko pro návrat zpět
         draw_button(screen, back_btn, "Back", back_btn.collidepoint(smx, smy))
-        draw_custom_cursor(screen, smx, smy)
+        draw_custom_cursor(screen, smx, smy) # Vykreslení zaměřovače
         pygame.display.flip()
         clock.tick(60)
+
+def get_text_input(screen, clock, title_text, initial_text=""):
+    """Jednoduchá funkce pro zadávání textu z klávesnice (pro přejmenování slotu)."""
+    input_active = True
+    user_text = initial_text
+    input_font = pygame.font.SysFont(None, 60)
+    
+    # Tmavé pozadí pro zadávání textu
+    bg_overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+    bg_overlay.fill((0, 0, 0, 230))
+
+    while input_active:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    input_active = False # Potvrzení klávesou Enter
+                elif event.key == pygame.K_BACKSPACE:
+                    user_text = user_text[:-1] # Mazání posledního znaku
+                elif event.key == pygame.K_ESCAPE:
+                    return initial_text # Zrušení pomocí Escape
+                else:
+                    # Přidání znaku z klávesnice (omezení na 15 znaků)
+                    if len(user_text) < 15:
+                        user_text += event.unicode
+
+        screen.blit(bg_overlay, (0, 0))
+        
+        # Vykreslení nadpisu okna
+        t_surf = font.render(title_text, True, (200, 200, 200))
+        screen.blit(t_surf, (width // 2 - t_surf.get_width() // 2, height // 2 - 100))
+        
+        # Vykreslení rámečku a zadaného textu s kurzorem (|)
+        txt_surf = input_font.render(user_text + "|", True, (255, 255, 255))
+        pygame.draw.rect(screen, (40, 60, 100), (width // 2 - 250, height // 2 - 30, 500, 70), border_radius=10)
+        pygame.draw.rect(screen, (80, 120, 255), (width // 2 - 250, height // 2 - 30, 500, 70), 2, border_radius=10)
+        screen.blit(txt_surf, (width // 2 - txt_surf.get_width() // 2, height // 2 - 15))
+        
+        # Nápověda k ovládání zadávání
+        hint = font.render("Press ENTER to confirm, ESC to cancel", True, (100, 150, 200))
+        screen.blit(hint, (width // 2 - hint.get_width() // 2, height // 2 + 60))
+
+        pygame.display.flip()
+        clock.tick(60)
+    
+    # Odstranění mezer na začátku a konci; pokud je text prázdný, použijeme výchozí název
+    return user_text.strip() if user_text.strip() else "Unnamed Slot"
+
+def show_save_slots(screen, clock):
+    """Obrazovka pro výběr, přejmenování a mazání uložených herních pozic (Save Slotů)."""
+    global current_save_slot
+    
+    slots_open = True
+    # Vytvoření dynamického pozadí s modrým gradientem
+    bg_img = pygame.Surface((width, height))
+    bg_img.fill((10, 15, 30))
+    for i in range(height):
+        col = (10, 15 + i // 40, 30 + i // 20)
+        pygame.draw.line(bg_img, col, (0, i), (width, i))
+
+    while slots_open:
+        mx, my = pygame.mouse.get_pos()
+        # Načtení informací o všech 4 slotech pro aktuální zobrazení
+        slot_infos = [load_save_info(i) for i in range(1, 5)]
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    slots_open = False # Návrat do hlavního menu
+            
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # Logika detekce kliknutí na tlačítka v jednotlivých řádcích (slotech)
+                for i in range(1, 5):
+                    base_y = 220 + (i-1) * 160
+                    # Definice hitboxů pro Play, Rename a Delete (musí odpovídat vykreslování)
+                    btn_play = pygame.Rect(width // 2 - 100, base_y, 250, 80)
+                    btn_rename = pygame.Rect(width // 2 + 180, base_y, 100, 80)
+                    btn_delete = pygame.Rect(width // 2 + 300, base_y, 100, 80)
+                    
+                    if btn_play.collidepoint(mx, my):
+                        fade_to_black(screen, clock) # Efekt zatmění
+                        if slot_infos[i-1]:
+                            # Načtení existující hry
+                            if load_game(i):
+                                return "PLAYING"
+                        else:
+                            # Vytvoření zcela nové hry v prázdném slotu
+                            reset_game_world()
+                            current_save_slot = i
+                            save_game(i, f"New Adventure {i}")
+                            return "PLAYING"
+                    
+                    if btn_rename.collidepoint(mx, my) and slot_infos[i-1]:
+                        # Dialog pro přejmenování slotu
+                        new_name = get_text_input(screen, clock, "Rename Slot:", slot_infos[i-1]['name'])
+                        load_game(i) # Načteme data slotu do paměti
+                        save_game(i, new_name) # Uložíme je zpět s novým jménem
+                    
+                    if btn_delete.collidepoint(mx, my) and slot_infos[i-1]:
+                        # Smazání uložené pozice
+                        delete_save(i)
+                
+                # Tlačítko pro návrat do menu
+                back_btn = pygame.Rect(width // 2 - 100, height - 100, 200, 60)
+                if back_btn.collidepoint(mx, my):
+                    slots_open = False
+
+        # Vykreslení prvků obrazovky Save Slotů
+        screen.blit(bg_img, (0, 0))
+        title = menu_title_font.render("SELECT SLOT", True, (255, 255, 255))
+        screen.blit(title, (width // 2 - title.get_width() // 2, 60))
+
+        for i in range(1, 5):
+            base_y = 220 + (i-1) * 160
+            info = slot_infos[i-1]
+            
+            # Box pozadí každého slotu
+            box_rect = pygame.Rect(width // 2 - 400, base_y - 20, 800, 120)
+            pygame.draw.rect(screen, (20, 30, 50, 150), box_rect, border_radius=15)
+            pygame.draw.rect(screen, (50, 80, 150), box_rect, 2, border_radius=15)
+            
+            # Zobrazení názvu slotu
+            slot_name = info['name'] if info else "--- EMPTY SLOT ---"
+            name_color = (255, 255, 255) if info else (100, 110, 130)
+            name_surf = option_font.render(f"#{i} {slot_name}", True, name_color)
+            screen.blit(name_surf, (width // 2 - 380, base_y + 15))
+            
+            # Hlavní tlačítko slotu (PLAY nebo NEW GAME)
+            btn_play = pygame.Rect(width // 2 - 100, base_y, 250, 80)
+            play_lbl = "PLAY" if info else "NEW GAME"
+            draw_button(screen, btn_play, play_lbl, btn_play.collidepoint(mx, my))
+            
+            # Zobrazení tlačítek pro přejmenování a smazání pouze u existujících pozic
+            if info:
+                btn_rename = pygame.Rect(width // 2 + 180, base_y, 100, 80)
+                btn_delete = pygame.Rect(width // 2 + 300, base_y, 100, 80)
+                draw_button(screen, btn_rename, "R", btn_rename.collidepoint(mx, my))
+                draw_button(screen, btn_delete, "X", btn_delete.collidepoint(mx, my))
+                
+                # Dodatečné informace o postupu ve slotu (životy a souřadnice)
+                details = f"Health: {info['player_health']} | Pos: {int(info['player_x'])},{int(info['player_y'])}"
+                det_surf = font.render(details, True, (150, 160, 180))
+                screen.blit(det_surf, (width // 2 - 380, base_y + 55))
+
+        # Tlačítko zpět dole na obrazovce
+        back_btn = pygame.Rect(width // 2 - 100, height - 100, 200, 60)
+        draw_button(screen, back_btn, "Back", back_btn.collidepoint(mx, my))
+        
+        draw_custom_cursor(screen, mx, my) # Vykreslení kurzoru
+        pygame.display.flip() # Překlopení snímku na monitor
+        clock.tick(60) # Omezení FPS na 60 v menu
+    
+    return "MAIN_MENU" # Návrat k hlavnímu menu, pokud nebylo kliknuto na Play
 
 # --- Hlavní menu (Main Menu) ---
 def show_main_menu(screen, clock):
@@ -386,18 +697,22 @@ def show_main_menu(screen, clock):
 
 
     while menu_running:
-        mx, my = pygame.mouse.get_pos()
+        mx, my = pygame.mouse.get_pos() # Získání pozice myši
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
                 menu_running = False
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # Detekce kliknutí na tlačítka menu
                 if play_btn.collidepoint(mx, my):
-                    return "PLAYING"
+                    fade_to_black(screen, clock) # Přechod do výběru slotů
+                    state = show_save_slots(screen, clock)
+                    if state == "PLAYING":
+                        return "PLAYING" # Zahájení hry
                 elif settings_btn.collidepoint(mx, my):
-                    show_settings_menu(screen, clock, bg_img)
+                    show_settings_menu(screen, clock, bg_img) # Otevření nastavení
                 elif quit_btn.collidepoint(mx, my):
-                    running = False
+                    running = False # Ukončení hry
                     menu_running = False
 
         if not running:
@@ -422,16 +737,16 @@ def show_main_menu(screen, clock):
             if p['y'] < -10: p['y'] = height + 10
             pygame.draw.circle(screen, (50, 100, 200), (int(p['x']), int(p['y'])), int(p['radius']))
 
-        # Titulek
+        # Titulek hry
         title_surf = menu_title_font.render("THE LABYRINTH", True, (255, 255, 255))
-        title_x = width - title_surf.get_width() - 150
+        title_x = width - title_surf.get_width() - 150 # Pozice vpravo
         title_y = height // 2 - 500
         
-        # Záře pod titulkem
+        # Vykreslení modré záře (stínu) pod titulkem pro lepší čitelnost
         glow_surf = menu_title_font.render("THE LABYRINTH", True, (50, 150, 255))
         for offset in range(1, 5):
             screen.blit(glow_surf, (title_x + offset, title_y + offset))
-        screen.blit(title_surf, (title_x, title_y))
+        screen.blit(title_surf, (title_x, title_y)) # Samotný bílý text
 
 
 
@@ -448,16 +763,18 @@ def show_main_menu(screen, clock):
 
 # --- Obrazovka Inventáře (Inventory Menu) ---
 def show_inventory(screen, clock, bg_copy):
+    """Zobrazí obrazovku inventáře s předměty hráče a rozmazaným pozadím."""
     global running, inventory
     
-    # Rozmazání pozadí pro lepší čitelnost (blur efekt)
+    # Efekt rozmazání pozadí (blur) pomocí dvojího škálování
     bg_copy = pygame.transform.smoothscale(bg_copy, (width // 10, height // 10))
     bg_copy = pygame.transform.smoothscale(bg_copy, (width, height))
 
     inventory_open = True
 
+    # Tmavě modrý panel inventáře přes celou obrazovku
     inv_surf = pygame.Surface((width, height), pygame.SRCALPHA)
-    inv_surf.fill((0, 0, 10, 245)) # Tmavší a méně průhledný podklad
+    inv_surf.fill((0, 0, 10, 245)) # Velmi tmavý a neprůhledný podklad
 
     
     inv_title_font = pygame.font.SysFont(None, 100)
@@ -482,6 +799,13 @@ def show_inventory(screen, clock, bg_copy):
         # Nadpis inventáře
         title = inv_title_font.render("INVENTORY", True, (255, 255, 255))
         screen.blit(title, (width // 2 - title.get_width() // 2, 80))
+
+        # Vykreslení velké ikony hráče na levé straně
+        player_inv_size = 350
+        textura_hrac_velka = pygame.transform.scale(textura_hrac, (player_inv_size, player_inv_size))
+        icon_x = width // 4 - player_inv_size // 2
+        icon_y = height // 2 - player_inv_size // 2
+        screen.blit(textura_hrac_velka, (icon_x, icon_y))
         
         # Rozdělení na sekce: MISC (střed) a UPGRADES (vpravo)
         misc_x = width // 2 - 200
@@ -602,14 +926,15 @@ for _ in range(150):
 
 running = True
 
-# --- Spuštění hlavního menu před začátkem hry ---
-if game_state == "MAIN_MENU":
-    game_state = show_main_menu(screen, clock)
-    if game_state == "QUIT":
-        running = False
-
 # Hlavní herní smyčka
 while running:
+    # --- Správa stavů hry ---
+    if game_state == "MAIN_MENU":
+        game_state = show_main_menu(screen, clock)
+        if game_state == "QUIT":
+            running = False
+            break
+        continue # Pokud se vracíme z menu, začneme smyčku znovu (vyčištění eventů atd.)
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -645,12 +970,15 @@ while running:
                 pause_surf.fill((0, 0, 0, 190))
                 pause_text = pause_font.render("PAUSED", True, (255, 255, 255))
 
-                # Rozměry a pozice tří tlačítek hlavní pauzy
-                btn_w, btn_h = 340, 64
+                # Rozměry a pozice tlačítek v pauze
+                btn_w, btn_h = 340, 60
                 btn_x = width // 2 - btn_w // 2
-                btn_resume   = pygame.Rect(btn_x, height // 2 - 20,        btn_w, btn_h)
-                btn_settings = pygame.Rect(btn_x, height // 2 - 20 + 90,   btn_w, btn_h)
-                btn_quit     = pygame.Rect(btn_x, height // 2 - 20 + 180,  btn_w, btn_h)
+                start_btn_y = height // 2 - 50
+                
+                btn_resume    = pygame.Rect(btn_x, start_btn_y,        btn_w, btn_h)
+                btn_settings  = pygame.Rect(btn_x, start_btn_y + 80,   btn_w, btn_h)
+                btn_main_menu = pygame.Rect(btn_x, start_btn_y + 160,  btn_w, btn_h)
+                btn_quit      = pygame.Rect(btn_x, start_btn_y + 240,  btn_w, btn_h)
 
                 pygame.mouse.set_visible(False)
                 bg_copy = screen.copy()
@@ -669,6 +997,10 @@ while running:
                                 paused = False
                             elif btn_settings.collidepoint(mx, my):
                                 show_settings_menu(screen, clock, bg_copy)
+                            elif btn_main_menu.collidepoint(mx, my):
+                                # Návrat do menu (bez automatického uložení)
+                                game_state = "MAIN_MENU"
+                                paused = False
                             elif btn_quit.collidepoint(mx, my):
                                 running = False
                                 paused = False
@@ -679,17 +1011,21 @@ while running:
                     # --- Vykreslení pauza obrazovky ---
                     screen.blit(bg_copy, (0, 0))
                     screen.blit(pause_surf, (0, 0))
-                    screen.blit(pause_text, (width // 2 - pause_text.get_width() // 2, height // 2 - 160))
+                    screen.blit(pause_text, (width // 2 - pause_text.get_width() // 2, height // 2 - 180))
 
                     # Jemná oddělovací linka pod nadpisem
-                    line_y = height // 2 - 85
+                    line_y = height // 2 - 95
                     pygame.draw.line(screen, (70, 100, 180), (width // 2 - 170, line_y), (width // 2 + 170, line_y), 1)
 
-                    # Tři tlačítka s hover efektem
-                    draw_button(screen, btn_resume,   "Resume",   btn_resume.collidepoint(mx, my))
-                    draw_button(screen, btn_settings, "Settings", btn_settings.collidepoint(mx, my))
-                    draw_button(screen, btn_quit,     "Quit",     btn_quit.collidepoint(mx, my))
+                    # Tlačítka s hover efektem
+                    draw_button(screen, btn_resume,    "Resume",    btn_resume.collidepoint(mx, my))
+                    draw_button(screen, btn_settings,  "Settings",  btn_settings.collidepoint(mx, my))
+                    draw_button(screen, btn_main_menu, "Main Menu", btn_main_menu.collidepoint(mx, my))
+                    draw_button(screen, btn_quit,      "Exit Game", btn_quit.collidepoint(mx, my))
                     draw_custom_cursor(screen, mx, my)
+
+                    pygame.display.flip()
+                    clock.tick(60)
 
                     pygame.display.flip()
                     clock.tick(60)
@@ -799,13 +1135,16 @@ while running:
 
     # --- Kontrola kolize s léčivou platformou (checkpoint) ---
     player_hitbox = pygame.Rect(x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size)
-    for hp in healing_platforms:
+    on_any_platform = False
+    for idx, hp in enumerate(healing_platforms):
         if player_hitbox.colliderect(hp):
+            on_any_platform = True
             # Uložení nového checkpointu
             checkpoint_x = x
             checkpoint_y = y
             # Plné vyléčení hráče
             player_health = 6
+            
             # Spuštění záblesku pouze pokud na platformě ještě není aktivní záblesk
             center_x = hp.x + hp.width / 2
             center_y = hp.y + hp.height / 2
@@ -814,6 +1153,11 @@ while running:
                 for g in healing_platform_glow
             )
             if not already_glowing:
+                # Automatické uložení hry do aktuálního slotu (pouze pokud jsme na nové platformě)
+                if last_saved_platform_idx != idx:
+                    save_game(current_save_slot)
+                    last_saved_platform_idx = idx
+
                 for ring_idx in range(4):
                     healing_platform_glow.append({
                         'x': center_x,
@@ -822,6 +1166,9 @@ while running:
                         'alpha': 220 - ring_idx * 40
                     })
             break
+    
+    if not on_any_platform:
+        last_saved_platform_idx = -1
 
     # --- Umělá inteligence nepřítele (Enemy AI) ---
     # Nepřítel se neustále snaží dostat přímo k hráči (jednoduché pronásledování)

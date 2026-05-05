@@ -48,11 +48,11 @@ maze_layout = [
     "WWWWWWW W WWWWWWW W WWWWWWW W WWW WWWWWWW W W W WWWWWWWWWW W",
     "W     W W W       W W       W           W W W W W        W W",
     "W WWW W W W WWWWW W W WWWWWWWWWWW WWWWW W W W W W WWWWWW W W",
-    "W   W W W W     W W W W                 W W   W W W    W W W",
-    "W WWW W W WWWWW W W W W    K W  W       W WWWWW W WWWW W W W",
+    "W   W W W W     W W W W   D             W W   W W W    W W W",
+    "W WWW W W WWWWW W W W W R  K W  W       W WWWWW W WWWW W W W",
     "W   W W W       W W W W  H   P    E     W       W W    W W W",
     "WWWWW W WWWWWWWWW W W W  W  S W         W W WWWWW W WWWW W W",
-    "W     W           W W W                 W W W     W      W W",
+    "W     W           W W W         C       W W W     W      W W",
     "W WWWWWWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWW W W WWWWW WWWWWW W",
     "W                 W W                     W W W          W W",
     "W WWWWWWWWWWWWWWW W W WWWWWWWWWWWWWWWWWWW W W W WWWWWWWW W W",
@@ -94,11 +94,23 @@ walls = [] # Seznam pro uložení všech obyčejných zdí
 locked_walls = [] # Seznam pro uložení zamčených zdí
 
 inventory = [] # Inventář hráče (na začátku prázdný)
+current_weapon = None       # Aktuálně vybavená zbraň (None, 'Sword', 'Spear', 'Scythe')
+unlocked_weapons = []       # Seznam odemčených zbraní hráče
 inventory_open = False # Stav, zda je zrovna otevřena obrazovka inventáře
 items_on_ground = [] # Seznam předmětů ležících na mapě
 pickup_notifications = [] # Seznam pro zobrazení sebraných předmětů v rohu obrazovky
 healing_platforms = [] # Seznam léčivých platforem (checkpointů)
 healing_platform_glow = [] # Aktivní animace záblesku při aktivaci léčivé platformy
+
+# Systém útoků
+is_attacking = False
+attack_timer = 0
+attack_duration = 15 # Trvání útoku v počtu snímků
+attack_angle = 0    # Úhel zamknutý při zahájení útoku
+
+# Systém nepřítele
+enemy_hp = 6
+max_enemy_hp = 6
 
 # Default values (Výchozí startovní souřadnice pro případ, že na mapě chybí P a E)
 start_x, start_y = 100, 100
@@ -147,6 +159,7 @@ def reset_game_world():
     global x, y, enemy_x, enemy_y, player_health, inventory, items_on_ground
     global pickup_notifications, healing_platform_glow, checkpoint_x, checkpoint_y
     global camera_x, camera_y, wobble_time, wobble_amp, particles
+    global current_weapon, unlocked_weapons
 
     # Nastavení hráče na jeho startovní souřadnice nalezené v mapě
     x, y = start_x, start_y
@@ -158,6 +171,8 @@ def reset_game_world():
     # Reset základních parametrů hráče
     player_health = 6       # Plný počet životů
     inventory = []          # Prázdný inventář
+    current_weapon = None   # Reset aktuální zbraně
+    unlocked_weapons = []   # Reset odemčených zbraní
     items_on_ground = []    # Vyčištění předmětů na zemi před novým načtením
     pickup_notifications = [] # Vyčištění notifikací v rohu
     healing_platform_glow = [] # Vyčištění efektů platforem
@@ -182,6 +197,18 @@ def reset_game_world():
                 item_x = int(col_idx * block_size + block_size / 2)
                 item_y = int(row_idx * block_size + block_size / 2)
                 items_on_ground.append({'type': 'Glitter Slime Ball', 'x': item_x, 'y': item_y})
+            elif cell == "D": # Písmeno D značí zbraň Sword (Meč)
+                item_x = int(col_idx * block_size + block_size / 2)
+                item_y = int(row_idx * block_size + block_size / 2)
+                items_on_ground.append({'type': 'Sword', 'x': item_x, 'y': item_y})
+            elif cell == "R": # Písmeno R značí zbraň Spear (Kopí)
+                item_x = int(col_idx * block_size + block_size / 2)
+                item_y = int(row_idx * block_size + block_size / 2)
+                items_on_ground.append({'type': 'Spear', 'x': item_x, 'y': item_y})
+            elif cell == "C": # Písmeno C značí zbraň Scythe (Kosa)
+                item_x = int(col_idx * block_size + block_size / 2)
+                item_y = int(row_idx * block_size + block_size / 2)
+                items_on_ground.append({'type': 'Scythe', 'x': item_x, 'y': item_y})
 
 def save_game(slot_id, slot_name=None):
     """Uloží aktuální stav hry do JSON souboru."""
@@ -201,6 +228,8 @@ def save_game(slot_id, slot_name=None):
         "enemy_y": enemy_y,               # Pozice Y nepřítele
         "player_health": player_health,  # Aktuální životy
         "inventory": inventory,          # Seznam věcí v inventáři
+        "current_weapon": current_weapon,         # Aktuálně vybavená zbraň
+        "unlocked_weapons": unlocked_weapons,     # Odemčené zbraně
         "checkpoint_x": checkpoint_x,    # Poslední uložený checkpoint X
         "checkpoint_y": checkpoint_y,    # Poslední uložený checkpoint Y
         "items_on_ground": items_on_ground, # Zbývající věci na zemi v bludišti
@@ -223,6 +252,7 @@ def load_game(slot_id):
     """Načte kompletní stav hry z JSON souboru."""
     global x, y, enemy_x, enemy_y, player_health, inventory, items_on_ground
     global checkpoint_x, checkpoint_y, camera_x, camera_y, current_save_slot
+    global current_weapon, unlocked_weapons
     
     # Cesta k souboru uložené pozice
     path = os.path.join(os.path.dirname(__file__), "saves", f"save_{slot_id}.json")
@@ -241,6 +271,8 @@ def load_game(slot_id):
         enemy_y = data["enemy_y"]
         player_health = data["player_health"]
         inventory = data["inventory"]
+        current_weapon = data.get("current_weapon", None)
+        unlocked_weapons = data.get("unlocked_weapons", [])
         checkpoint_x = data["checkpoint_x"]
         checkpoint_y = data["checkpoint_y"]
         items_on_ground = data["items_on_ground"]
@@ -299,11 +331,16 @@ def get_texture(filename, default_color, size_tuple, pixelate_size=None, colorke
     path = os.path.join(TEXTURES_DIR, filename)
     if os.path.exists(path):
         try:
-            # Načteme obrázek a zachováme jeho průhlednost (alpha kanál)
-            img = pygame.image.load(path).convert_alpha()
+            # Načtení obrázku
+            raw_img = pygame.image.load(path)
             if colorkey:
-                # Nastavení barvy, která má být brána jako průhledná
+                # Pro barvu klíče (colorkey) je lepší použít convert() bez alpha kanálu
+                img = raw_img.convert()
                 img.set_colorkey(colorkey)
+            else:
+                # Pro zachování průhlednosti (alpha kanál) použijeme convert_alpha()
+                img = raw_img.convert_alpha()
+
             if pixelate_size:
                 # Záměrně obrázek nejdříve zmenšíme, aby vznikl retro pixel artový efekt
                 img = pygame.transform.scale(img, pixelate_size)
@@ -317,6 +354,53 @@ def get_texture(filename, default_color, size_tuple, pixelate_size=None, colorke
     surf = pygame.Surface(size_tuple, pygame.SRCALPHA)
     surf.fill(default_color)
     return surf
+
+def create_pixel_weapon(weapon_type, size=96): # Zvětšená základní plocha pro delší zbraně
+    """Procedurálně vytvoří pixel-artovou zbraň v modré barvě s průhledným pozadím."""
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    
+    glow_color = (100, 200, 255)
+    core_color = (200, 240, 255)
+    handle_color = (40, 60, 100)
+    
+    px = size // 16 # Větší pixely pro 96x96 plochu
+    
+    if weapon_type == 'Sword':
+        # Delší čepel (Blade) - range 3 až 13
+        for i in range(2, 13):
+            pygame.draw.rect(surf, glow_color, (7.2*px, i*px, 1.6*px, px))
+            pygame.draw.rect(surf, core_color, (7.6*px, i*px, 0.8*px, px))
+        # Záštita a jílec
+        pygame.draw.rect(surf, handle_color, (5.5*px, 13*px, 5*px, px))
+        pygame.draw.rect(surf, handle_color, (7.6*px, 14*px, 0.8*px, 2*px))
+        
+    elif weapon_type == 'Spear':
+        # Silnější rukojeť a hrot (Revert thin change)
+        for i in range(6, 15):
+            pygame.draw.rect(surf, handle_color, (7.5*px, i*px, px, px))
+        # Silnější hrot (Spearhead)
+        pygame.draw.rect(surf, glow_color, (7*px, 4*px, 2*px, 2*px))
+        pygame.draw.rect(surf, core_color, (7.5*px, 3*px, px, 3*px))
+        pygame.draw.rect(surf, glow_color, (7.5*px, 2*px, px, px))
+        
+    elif weapon_type == 'Scythe':
+        # Větší zahnutá čepel
+        for i in range(4, 15):
+            pygame.draw.rect(surf, handle_color, (7.6*px, i*px, 0.8*px, px))
+        # Velká kosa čepel
+        for i in range(2, 9):
+            pygame.draw.rect(surf, glow_color, (i*px, 4*px, px, 2*px))
+            pygame.draw.rect(surf, core_color, (i*px, 4.5*px, px, px))
+        pygame.draw.rect(surf, glow_color, (1*px, 5*px, px, px))
+
+    return surf
+
+# Vlastnosti hitboxů zbraní (dosah, úhel rozptylu a poškození)
+WEAPON_HITBOX_PROPS = {
+    'Sword':  {'range': 260, 'arc': 110, 'damage': 1},
+    'Spear':  {'range': 400, 'arc': 25,  'damage': 2},
+    'Scythe': {'range': 280, 'arc': 160, 'damage': 3}
+}
 
 # Vykreslení vlastního kurzoru na obrazovce (místo systémové šipky)
 def draw_custom_cursor(surf, x, y, size=10):
@@ -491,10 +575,12 @@ def show_settings_menu(screen, clock, bg_image):
             screen.blit(controls_title, (width // 2 - controls_title.get_width() // 2, 220))
             controls_lines = [
                 "W / A / S / D - Move",
-                "Mouse - Aim / Interact",
-                "SPACE - Pickup item / Interact",
+                "Mouse - Aim / Attack",
+                "MOUSE LEFT - Attack",
+                "SPACE - Pickup item",
+                "1 / 2 / 3 - Select Weapon Slot",
+                "B - Open Inventory",
                 "ESC - Pause / Back",
-                "MOUSE LEFT - Select / Toggle",
             ]
             for idx, line in enumerate(controls_lines):
                 line_surf = option_font.render(line, True, (220, 220, 220))
@@ -764,7 +850,7 @@ def show_main_menu(screen, clock):
 # --- Obrazovka Inventáře (Inventory Menu) ---
 def show_inventory(screen, clock, bg_copy):
     """Zobrazí obrazovku inventáře s předměty hráče a rozmazaným pozadím."""
-    global running, inventory
+    global running, inventory, current_weapon, unlocked_weapons
     
     # Efekt rozmazání pozadí (blur) pomocí dvojího škálování
     bg_copy = pygame.transform.smoothscale(bg_copy, (width // 10, height // 10))
@@ -845,6 +931,42 @@ def show_inventory(screen, clock, bg_copy):
         if not upgrade_items:
             empty_text = item_font.render("No upgrades...", True, (100, 120, 100))
             screen.blit(empty_text, (upgrades_x, start_y + 80))
+
+        # Sekce WEAPONS (Zbraně odemčené hráčem)
+        weapons_x = misc_x
+        weapons_start_y = start_y + 320 # Posunuto níže
+        weapons_title = section_font.render("WEAPONS", True, (255, 180, 80))
+        screen.blit(weapons_title, (weapons_x, weapons_start_y))
+        pygame.draw.line(screen, (180, 110, 30), (weapons_x, weapons_start_y + 50), (weapons_x + 300, weapons_start_y + 50), 2)
+
+        weapon_colors = {'Sword': (80, 160, 255), 'Spear': (0, 220, 220), 'Scythe': (160, 80, 255)}
+        if unlocked_weapons:
+            for w_idx, wname in enumerate(unlocked_weapons):
+                is_active = (wname == current_weapon)
+                wcolor = weapon_colors.get(wname, (200, 200, 200))
+                row_y = weapons_start_y + 65 + w_idx * 80
+                # Zvýraznění aktivní zbraně
+                if is_active:
+                    hl_surf = pygame.Surface((450, 65), pygame.SRCALPHA) # Rozšířeno, aby se vešel text
+                    hl_surf.fill((*wcolor, 35))
+                    pygame.draw.rect(hl_surf, (*wcolor, 180), (0, 0, 450, 65), 2, border_radius=8)
+                    screen.blit(hl_surf, (weapons_x - 5, row_y - 5))
+                # Ikona zbraně
+                wtex = WEAPON_TEXTURES.get(wname)
+                if wtex:
+                    wicon = pygame.transform.scale(wtex, (50, 50))
+                    screen.blit(wicon, (weapons_x, row_y))
+                # Název zbraně + číslo slotu
+                slot_num = w_idx + 1
+                label = f"[{slot_num}]  {wname}"
+                if is_active:
+                    label += "  ◄ ACTIVE"
+                label_color = wcolor if is_active else (160, 170, 190)
+                label_surf = item_font.render(label, True, label_color)
+                screen.blit(label_surf, (weapons_x + 60, row_y + 12))
+        else:
+            no_w = item_font.render("No weapons found...", True, (100, 110, 130))
+            screen.blit(no_w, (weapons_x, weapons_start_y + 65))
             
         draw_custom_cursor(screen, *pygame.mouse.get_pos())
         pygame.display.flip()
@@ -872,6 +994,14 @@ textura_klic_icon = get_texture("key.png", (255, 215, 0), (50, 50))
 textura_slime_orb = get_texture("slime_orb.png", (0, 188, 212), (30, 30))
 textura_slime_orb_eyes = get_texture("slime_orb_eyes.png", (33, 150, 243), (50, 50))
 textura_glitter_ball = get_texture("glitter_slime_ball.png", (180, 255, 255), (50, 50), pixelate_size=(16, 16), colorkey=(0, 0, 0))
+
+# Textury zbraní (Procedurálně generované modré pixel-art zbraně)
+textura_weapon_sword  = create_pixel_weapon('Sword', 96)
+textura_weapon_spear  = create_pixel_weapon('Spear', 96)
+textura_weapon_scythe = create_pixel_weapon('Scythe', 96)
+textura_weapon_icon   = pygame.transform.scale(textura_weapon_sword, (50, 50)) # Ikona je zmenšený meč
+
+WEAPON_TEXTURES = {'Sword': textura_weapon_sword, 'Spear': textura_weapon_spear, 'Scythe': textura_weapon_scythe}
 
 
 textura_healing_platform = get_texture("healing_platform.png", (0, 100, 220), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
@@ -941,28 +1071,46 @@ while running:
             running = False
 
 # Esc - Pause screen & Inventory screen ("B")
+        # Kliknutí myší - Útok
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if current_weapon and not is_attacking:
+                is_attacking = True
+                attack_timer = attack_duration
+                # Zamknutí úhlu pro útok
+                draw_x_tmp = int((x - camera_x) * zoom)
+                draw_y_tmp = int((y - camera_y) * zoom)
+                rel_x = mouse_x - (draw_x_tmp + player_draw_size // 2)
+                rel_y = mouse_y - (draw_y_tmp + player_draw_size // 2)
+                attack_angle = math.degrees(math.atan2(rel_y, rel_x))
+
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_b:
                 bg_copy = screen.copy()
                 show_inventory(screen, clock, bg_copy)
             if event.key == pygame.K_SPACE:
-
                 # Mechanika sbírání předmětů
                 pickup_range = 150 # Dosah pro sebrání předmětu
                 player_cx = x + size / 2
                 player_cy = y + size / 2
                 for item in items_on_ground[:]:
-                    # Kontrola vzdálenosti hráče od předmětu
                     if math.hypot(player_cx - item['x'], player_cy - item['y']) <= pickup_range:
-                        inventory.append(item['type'])
-                        # Přidáme oznámení o sebrání do seznamu (s aktuálním časem pro postupné zmizení)
-                        pickup_notifications.append({
-                            'type': item['type'],
-                            'time': pygame.time.get_ticks() / 1000.0,
-                            'alpha': 255
-                        })
+                        if item['type'] in ('Sword', 'Spear', 'Scythe'):
+                            if item['type'] not in unlocked_weapons:
+                                unlocked_weapons.append(item['type'])
+                            if current_weapon is None:
+                                current_weapon = item['type']
+                        else:
+                            inventory.append(item['type'])
+                        pickup_notifications.append({'type': item['type'], 'time': pygame.time.get_ticks() / 1000.0, 'alpha': 255})
                         items_on_ground.remove(item)
-                        break # Najednou sebere jen jeden předmět
+                        break
+
+            if event.key == pygame.K_1:
+                if len(unlocked_weapons) >= 1: current_weapon = unlocked_weapons[0]
+            if event.key == pygame.K_2:
+                if len(unlocked_weapons) >= 2: current_weapon = unlocked_weapons[1]
+            if event.key == pygame.K_3:
+                if len(unlocked_weapons) >= 3: current_weapon = unlocked_weapons[2]
 
             if event.key == pygame.K_ESCAPE:
                 paused = True
@@ -1326,10 +1474,10 @@ while running:
             # Výpočet plynulého pulzování (velikost jiskry se mění v čase)
             pulse = (math.sin(curr_t * 8 + item['x']) + 1) / 2 # Hodnota mezi 0.0 a 1.0
             sparkle_rad = max(4, int(12 * pulse * zoom)) # Zvětšený poloměr jiskry
-            
-            # Zlatá barva pro klíč, světle modrá pro ostatní případné předměty
-            color_outer = (255, 215, 0) if item['type'] == "Key" else (200, 255, 255)
-            
+
+            # Jednotná barva jiskry pro všechny předměty (světle modrá)
+            color_outer = (200, 255, 255)
+
             # Nakreslení vnějšího lesku a vnitřního jasného bodu (jádra jiskry)
             pygame.draw.circle(screen, color_outer, (item_dx, item_dy), sparkle_rad)
             pygame.draw.circle(screen, (255, 255, 255), (item_dx, item_dy), max(2, int(sparkle_rad * 0.4)))
@@ -1366,6 +1514,75 @@ while running:
         screen.blit(scaled_textura, (draw_x + offset_x, draw_y + offset_y))
     else:
         screen.blit(textura_hrac, (draw_x, draw_y))
+
+    # --- Vykreslení a animace zbraně v ruce ---
+    if current_weapon and is_attacking:
+        # Použijeme zamknutý úhel útoku pro celou animaci
+        angle_to_use = attack_angle
+        
+        # Základní parametry zbraně
+        weapon_surf = WEAPON_TEXTURES[current_weapon]
+        w_size = int(150 * zoom) # 2x větší vizuální velikost
+        weapon_img = pygame.transform.scale(weapon_surf, (w_size, w_size))
+        
+        # Animace
+        anim_offset_angle = 0
+        anim_dist_offset = 0
+        
+        # Procento dokončení útoku (0.0 až 1.0)
+        progress = 1.0 - (attack_timer / attack_duration)
+        
+        if current_weapon == 'Sword':
+            anim_offset_angle = -60 + (progress * 120)
+        elif current_weapon == 'Scythe':
+            anim_offset_angle = 60 - (progress * 120)
+        elif current_weapon == 'Spear':
+            anim_dist_offset = math.sin(progress * math.pi) * 80 * zoom
+
+        # --- Detekce zásahu (Hitbox logic) ---
+        if attack_timer == attack_duration // 2:
+            props = WEAPON_HITBOX_PROPS.get(current_weapon, {'range': 100, 'arc': 90, 'damage': 1})
+            
+            dx_e = enemy_center_world_x - player_center_world_x
+            dy_e = enemy_center_world_y - player_center_world_y
+            dist_e = math.hypot(dx_e, dy_e)
+            angle_e = math.degrees(math.atan2(dy_e, dx_e))
+            
+            angle_diff = (angle_e - angle_to_use + 180) % 360 - 180
+            
+            if dist_e <= props['range'] and abs(angle_diff) <= props['arc'] / 2:
+                # Zásah nepřítele!
+                enemy_hp -= props['damage']
+                
+                for _ in range(15):
+                    particles.append({
+                        'x': enemy_center_world_x, 'y': enemy_center_world_y,
+                        'radius': random.uniform(5, 10), 'life': 25,
+                        'color': (255, 100, 100),
+                        'dx': random.uniform(-3, 3), 'dy': random.uniform(-3, 3)
+                    })
+                
+                if enemy_hp <= 0:
+                    enemy_x, enemy_y = start_enemy_x, start_enemy_y
+                    enemy_hp = max_enemy_hp
+
+        # Rotace a vykreslení zbraně
+        final_angle = -(angle_to_use + 90 + anim_offset_angle)
+        rotated_weapon = pygame.transform.rotate(weapon_img, final_angle)
+        
+        dist = (player_draw_size // 2 + 80 * zoom) + anim_dist_offset
+        rad = math.radians(angle_to_use + anim_offset_angle)
+        w_x = (draw_x + player_draw_size // 2) + math.cos(rad) * dist
+        w_y = (draw_y + player_draw_size // 2) + math.sin(rad) * dist
+        
+        w_rect = rotated_weapon.get_rect(center=(int(w_x), int(w_y)))
+        screen.blit(rotated_weapon, w_rect)
+
+    # Vždy aktualizujeme timer útoku (pokud zrovna útočíme), i když zbraň zrovna nevykreslujeme
+    if is_attacking:
+        attack_timer -= 1
+        if attack_timer <= 0:
+            is_attacking = False
 
     # --- Zjištění viditelnosti pro enemy ---
     vision_radius = 2000
@@ -1559,6 +1776,37 @@ while running:
         
         screen.blit(scaled_orb, (draw_x, draw_y)) # Vykreslení konkrétního orbu
 
+    # --- HUD zbrane (levá strana, nad zdravím) ---
+    if current_weapon and current_weapon != "None":
+        weapon_hud_y = health_bg_y - 80
+        weapon_slot_w = 220
+        weapon_slot_h = 64
+        # Vytvoření povrchu pro pozadí slotu zbraně
+        weapon_slot_bg = pygame.Surface((weapon_slot_w, weapon_slot_h), pygame.SRCALPHA)
+        weapon_slot_bg.fill((10, 20, 50, 200))
+        pygame.draw.rect(weapon_slot_bg, (80, 160, 255), (0, 0, weapon_slot_w, weapon_slot_h), 2, border_radius=10)
+
+        screen.blit(weapon_slot_bg, (10, weapon_hud_y))
+
+        # Ikona zbraně (aktuální textura zbraně)
+        icon_pulse = (math.sin(current_time * 3) + 1) / 2
+        icon_size = max(8, int(50 + icon_pulse * 4))
+        
+        if current_weapon in WEAPON_TEXTURES:
+            weapon_tex = WEAPON_TEXTURES[current_weapon]
+        else:
+            weapon_tex = textura_weapon_icon # Záložní ikona
+            
+        weapon_icon_scaled = pygame.transform.scale(weapon_tex, (icon_size, icon_size))
+        screen.blit(weapon_icon_scaled, (14, weapon_hud_y + (weapon_slot_h - icon_size) // 2))
+
+        # Název a přepínací nápověda
+        weapon_name_font = pygame.font.SysFont(None, 28)
+        w_name_surf = weapon_name_font.render(current_weapon, True, (180, 220, 255))
+        screen.blit(w_name_surf, (70, weapon_hud_y + 10))
+        switch_hint = weapon_name_font.render("[1] [2] [3]", True, (80, 120, 180))
+        screen.blit(switch_hint, (70, weapon_hud_y + 36))
+
     # --- Zobrazení notifikací o sebrání předmětů ---
     notif_y = height - 80 # Výchozí Y pozice v pravém dolním rohu
     active_notifications = []
@@ -1572,29 +1820,47 @@ while running:
             if time_alive > 2.0:
                 notif['alpha'] = max(0, int(255 * (3.0 - time_alive)))
                 
-            # Připravíme text
-            item_name = "Golden Key" if notif['type'] == "Key" else notif['type']
-            notif_text = health_font.render(f"+ {item_name}", True, (255, 215, 0) if notif['type'] == "Key" else (255, 255, 255))
+            # Připravíme text a barvu podle typu předmětu
+            if notif['type'] == "Key":
+                item_name = "Golden Key"
+                notif_color = (255, 215, 0)
+            elif notif['type'] == "Sword":
+                item_name = "Sword"
+                notif_color = (80, 160, 255)
+            elif notif['type'] == "Spear":
+                item_name = "Spear"
+                notif_color = (0, 220, 220)
+            elif notif['type'] == "Scythe":
+                item_name = "Scythe"
+                notif_color = (160, 80, 255)
+            else:
+                item_name = notif['type']
+                notif_color = (255, 255, 255)
+            notif_text = health_font.render(f"+ {item_name}", True, notif_color)
             notif_text.set_alpha(notif['alpha'])
-            
+
             # Pozadí pro notifikaci
             bg_width = notif_text.get_width() + 80 # Místo i pro ikonu
             bg_height = max(50, notif_text.get_height() + 20)
             notif_bg = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
             notif_bg.fill((0, 0, 0, int(180 * (notif['alpha'] / 255.0))))
-            
+
             # Vykreslení notifikace (od pravého okraje)
             draw_x = width - bg_width - 20
-            
+
             screen.blit(notif_bg, (draw_x, notif_y))
             if notif['type'] == "Key":
-                # Přidáme ikonu klíče a upravíme její průhlednost
                 icon_copy = textura_klic_icon.copy()
                 icon_copy.set_alpha(notif['alpha'])
                 screen.blit(icon_copy, (draw_x + 10, notif_y + (bg_height - 50) // 2))
             elif notif['type'] == "Glitter Slime Ball":
                 icon_copy = textura_glitter_ball.copy()
                 icon_copy.set_alpha(notif['alpha'])
+                screen.blit(icon_copy, (draw_x + 10, notif_y + (bg_height - 50) // 2))
+            elif notif['type'] in WEAPON_TEXTURES:
+                icon_copy = WEAPON_TEXTURES[notif['type']].copy()
+                icon_copy.set_alpha(notif['alpha'])
+                icon_copy = pygame.transform.scale(icon_copy, (50, 50))
                 screen.blit(icon_copy, (draw_x + 10, notif_y + (bg_height - 50) // 2))
                 
             screen.blit(notif_text, (draw_x + 70, notif_y + (bg_height - notif_text.get_height()) // 2))

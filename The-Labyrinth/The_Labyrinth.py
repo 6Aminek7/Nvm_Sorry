@@ -84,6 +84,7 @@ player_health = 6
 brightness = 0  # 0-255, 0 = žádný světlý překryv (overlay)
 target_fps = 120 # Cílová snímková frekvence
 show_fps_counter = False # Přepínač pro zobrazení FPS
+show_hitboxes = False # Přepínač pro zobrazení hitboxů
 
 # Zvětšení mapy (měřítko bludiště)
 scale = 4.5 
@@ -482,7 +483,7 @@ else:
 
 # --- Obrazovka nastavení (Settings Menu) ---
 def show_settings_menu(screen, clock, bg_image):
-    global brightness, target_fps, show_fps_counter, running
+    global brightness, target_fps, show_fps_counter, show_hitboxes, running
     
     settings_open = True
     # Vytvoření poloprůhledné černé plochy přes celou obrazovku
@@ -494,7 +495,7 @@ def show_settings_menu(screen, clock, bg_image):
     
     # Definice rozměrů a pozic tlačítek pro nastavení
     btn_sz = 60
-    row_y = [250, 340, 430, 520] # Výškové úrovně pro řádky nastavení
+    row_y = [200, 280, 360, 440, 520, 600] # Výškové úrovně pro řádky nastavení
     
     # Obdélníky pro interaktivní prvky (tlačítka a volby)
     br_minus_btn = pygame.Rect(width // 2 - 200, row_y[0], btn_sz, btn_sz)
@@ -502,7 +503,8 @@ def show_settings_menu(screen, clock, bg_image):
     fps_minus_btn = pygame.Rect(width // 2 - 200, row_y[1], btn_sz, btn_sz)
     fps_plus_btn  = pygame.Rect(width // 2 + 150, row_y[1], btn_sz, btn_sz)
     fps_toggle_btn = pygame.Rect(width // 2 - 200, row_y[2], 400, btn_sz)
-    controls_btn = pygame.Rect(width // 2 - 200, row_y[3], 400, btn_sz)
+    hitbox_toggle_btn = pygame.Rect(width // 2 - 200, row_y[3], 400, btn_sz)
+    controls_btn = pygame.Rect(width // 2 - 200, row_y[4], 400, btn_sz)
     back_btn = pygame.Rect(width // 2 - 170, height - 110, 340, 64)
 
     settings_mode = "main" # Aktuální režim (hlavní nastavení nebo nápověda k ovládání)
@@ -536,6 +538,8 @@ def show_settings_menu(screen, clock, bg_image):
                         target_fps = min(240, target_fps + 10) # Zvýšit limit FPS
                     elif fps_toggle_btn.collidepoint(smx, smy):
                         show_fps_counter = not show_fps_counter # Přepnout počítadlo FPS
+                    elif hitbox_toggle_btn.collidepoint(smx, smy):
+                        show_hitboxes = not show_hitboxes # Přepnout zobrazení hitboxů
                     elif controls_btn.collidepoint(smx, smy):
                         settings_mode = "controls" # Přepnout na zobrazení ovládání
                 else:
@@ -564,9 +568,13 @@ def show_settings_menu(screen, clock, bg_image):
             draw_button(screen, fps_minus_btn, "-", fps_minus_btn.collidepoint(smx, smy))
             draw_button(screen, fps_plus_btn, "+", fps_plus_btn.collidepoint(smx, smy))
             
-            # Tlačítko pro počítadlo FPS a vstup do ovládání
+            # Tlačítka pro počítadlo FPS, hitboxy a vstup do ovládání
             fps_count_label = f"FPS Counter: {'ON' if show_fps_counter else 'OFF'}"
             draw_button(screen, fps_toggle_btn, fps_count_label, fps_toggle_btn.collidepoint(smx, smy))
+            
+            hitbox_label = f"Show Hitboxes: {'ON' if show_hitboxes else 'OFF'}"
+            draw_button(screen, hitbox_toggle_btn, hitbox_label, hitbox_toggle_btn.collidepoint(smx, smy))
+            
             draw_button(screen, controls_btn, "Controls", controls_btn.collidepoint(smx, smy))
 
         elif settings_mode == "controls":
@@ -1543,25 +1551,44 @@ while running:
         if attack_timer == attack_duration // 2:
             props = WEAPON_HITBOX_PROPS.get(current_weapon, {'range': 100, 'arc': 90, 'damage': 1})
             
-            dx_e = enemy_center_world_x - player_center_world_x
-            dy_e = enemy_center_world_y - player_center_world_y
-            dist_e = math.hypot(dx_e, dy_e)
-            angle_e = math.degrees(math.atan2(dy_e, dx_e))
+            # Seznam bodů na nepříteli, které budeme testovat pro zásah (střed + rohy)
+            enemy_hitbox_points = [
+                (enemy_x, enemy_y),                                   # Levý horní roh
+                (enemy_x + enemy_size, enemy_y),                      # Pravý horní roh
+                (enemy_x, enemy_y + enemy_size),                      # Levý dolní roh
+                (enemy_x + enemy_size, enemy_y + enemy_size),          # Pravý dolní roh
+                (enemy_x + enemy_size / 2, enemy_y + enemy_size / 2)   # Střed nepřítele
+            ]
             
-            angle_diff = (angle_e - angle_to_use + 180) % 360 - 180
+            hit_registered = False
+            for pt_x, pt_y in enemy_hitbox_points:
+                dx_e = pt_x - player_center_world_x
+                dy_e = pt_y - player_center_world_y
+                dist_e = math.hypot(dx_e, dy_e)
+                angle_e = math.degrees(math.atan2(dy_e, dx_e))
+                
+                # Výpočet rozdílu úhlů (normalizováno na -180 až 180 stupňů)
+                angle_diff = (angle_e - angle_to_use + 180) % 360 - 180
+                
+                # Pokud je alespoň jeden bod v dosahu a úhlu, započítáme zásah
+                if dist_e <= props['range'] and abs(angle_diff) <= props['arc'] / 2:
+                    hit_registered = True
+                    break
             
-            if dist_e <= props['range'] and abs(angle_diff) <= props['arc'] / 2:
+            if hit_registered:
                 # Zásah nepřítele!
                 enemy_hp -= props['damage']
                 
+                # Vytvoření efektu krve/jisker na pozici nepřítele
                 for _ in range(15):
                     particles.append({
                         'x': enemy_center_world_x, 'y': enemy_center_world_y,
                         'radius': random.uniform(5, 10), 'life': 25,
-                        'color': (255, 100, 100),
+                        'color': (255, 100, 100), # Červená barva pro zásah
                         'dx': random.uniform(-3, 3), 'dy': random.uniform(-3, 3)
                     })
                 
+                # Pokud nepřítel zemře, respawnujeme ho (jednoduchý systém)
                 if enemy_hp <= 0:
                     enemy_x, enemy_y = start_enemy_x, start_enemy_y
                     enemy_hp = max_enemy_hp
@@ -1688,6 +1715,70 @@ while running:
 
     screen.blit(fog_surf, (0, 0))
     # --- KONEC FOG OF WAR ---
+
+    # --- ZOBRAZENÍ HITBOXŮ (Debug) ---
+    if show_hitboxes:
+        # Hitbox hráče (zelený)
+        p_hit_rect = pygame.Rect(
+            int((x + hitbox_offset - camera_x) * zoom),
+            int((y + hitbox_offset - camera_y) * zoom),
+            int(hitbox_size * zoom),
+            int(hitbox_size * zoom)
+        )
+        pygame.draw.rect(screen, (0, 255, 0), p_hit_rect, 2)
+
+        # Hitbox nepřítele (červený)
+        e_hit_rect = pygame.Rect(
+            int((enemy_x - camera_x) * zoom),
+            int((enemy_y - camera_y) * zoom),
+            int(enemy_size * zoom),
+            int(enemy_size * zoom)
+        )
+        pygame.draw.rect(screen, (255, 0, 0), e_hit_rect, 2)
+
+        # Dosah sbírání předmětů (žlutý)
+        for item in items_on_ground:
+            item_dx = int((item['x'] - camera_x) * zoom)
+            item_dy = int((item['y'] - camera_y) * zoom)
+            pickup_rad = int(150 * zoom) # Dosah je 150
+            pygame.draw.circle(screen, (255, 255, 0), (item_dx, item_dy), pickup_rad, 1)
+
+        # Hitbox léčivých platforem (modrý)
+        for hp in healing_platforms:
+            hp_rect = pygame.Rect(
+                int((hp.x - camera_x) * zoom),
+                int((hp.y - camera_y) * zoom),
+                int(hp.width * zoom),
+                int(hp.height * zoom)
+            )
+            pygame.draw.rect(screen, (0, 100, 255), hp_rect, 1)
+
+        # Hitbox útoku zbraně (modrý výsek)
+        if is_attacking and current_weapon:
+            props = WEAPON_HITBOX_PROPS.get(current_weapon)
+            if props:
+                range_px = int(props['range'] * zoom)
+                arc_deg = props['arc']
+                
+                # Střed hráče v souřadnicích obrazovky
+                pcx = int((x + size / 2 - camera_x) * zoom)
+                pcy = int((y + size / 2 - camera_y) * zoom)
+                
+                # Výpočet bodů pro vykreslení výseče útoku
+                start_rad = math.radians(attack_angle - arc_deg / 2)
+                end_rad = math.radians(attack_angle + arc_deg / 2)
+                
+                points = [(pcx, pcy)]
+                steps = 15
+                for i in range(steps + 1):
+                    angle = start_rad + (end_rad - start_rad) * (i / steps)
+                    px = pcx + math.cos(angle) * range_px
+                    py = pcy + math.sin(angle) * range_px
+                    points.append((px, py))
+                
+                if len(points) > 2:
+                    # Vykreslení obrysu výseče útoku
+                    pygame.draw.polygon(screen, (0, 150, 255), points, 2)
 
     # --- AMBIENT DUST ---
     current_time_dust = pygame.time.get_ticks() / 1000.0

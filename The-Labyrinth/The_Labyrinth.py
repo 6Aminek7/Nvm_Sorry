@@ -743,8 +743,8 @@ def show_save_slots(screen, clock):
                 draw_button(screen, btn_rename, "R", btn_rename.collidepoint(mx, my))
                 draw_button(screen, btn_delete, "X", btn_delete.collidepoint(mx, my))
                 
-                # Dodatečné informace o postupu ve slotu (životy a souřadnice)
-                details = f"Health: {info['player_health']} | Pos: {int(info['player_x'])},{int(info['player_y'])}"
+                # Dodatečné informace o postupu ve slotu (životy)
+                details = f"Health: {info['player_health']}"
                 det_surf = font.render(details, True, (150, 160, 180))
                 screen.blit(det_surf, (width // 2 - 380, base_y + 55))
 
@@ -1037,6 +1037,7 @@ for l_wall in locked_walls:
 # Proměnné pro animaci pohybu (pohupování postavičky, když jde)
 wobble_time = 0.0
 wobble_amp = 0.0
+shake_intensity = 0.0
 particles = [] # Seznam pro vizuální efekty při pohybu postavy
 
 # Vytvoření povrchů pro prachové částice (pro podporu průhlednosti)
@@ -1355,6 +1356,16 @@ while running:
     ## Kontrola kolize (dotyku) mezi hráčem a nepřítelem
     if pygame.Rect(x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size).colliderect(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size)):
         player_health = max(0, player_health - 1) # Hráč ztrácí jeden život
+        shake_intensity = 15.0 # Spuštění otřesu obrazovky
+
+        # Vytvoření efektu bílých ultra-rychlých částic při zásahu hráče
+        for _ in range(15):
+            particles.append({
+                'x': x + size / 2, 'y': y + size / 2,
+                'radius': random.uniform(6, 12), 'life': 20,
+                'color': (255, 255, 255), # Bílá barva pro hráče
+                'dx': random.uniform(-18, 18), 'dy': random.uniform(-18, 18)
+            })
 
         ## Po zásahu se nepřítel resetuje na svou původní startovní pozici
         enemy_x = start_enemy_x
@@ -1413,6 +1424,13 @@ while running:
 
     # --- Vykreslování (Rendering) ---
     
+    # Aplikace otřesu obrazovky (Screen Shake)
+    temp_camera_x, temp_camera_y = camera_x, camera_y
+    if shake_intensity > 0:
+        camera_x += random.uniform(-shake_intensity, shake_intensity)
+        camera_y += random.uniform(-shake_intensity, shake_intensity)
+        shake_intensity = max(0, shake_intensity - 0.8) # Postupné utlumení otřesu
+
     # Vyčištění obrazovky temnou barvou (pozadí mimo mapu)
     screen.fill((20, 20, 20))
     
@@ -1579,13 +1597,13 @@ while running:
                 # Zásah nepřítele!
                 enemy_hp -= props['damage']
                 
-                # Vytvoření efektu krve/jisker na pozici nepřítele
+                # Vytvoření efektu krve/jisker na pozici nepřítele (ultra-rychlé)
                 for _ in range(15):
                     particles.append({
                         'x': enemy_center_world_x, 'y': enemy_center_world_y,
-                        'radius': random.uniform(5, 10), 'life': 25,
+                        'radius': random.uniform(6, 12), 'life': 20,
                         'color': (255, 100, 100), # Červená barva pro zásah
-                        'dx': random.uniform(-3, 3), 'dy': random.uniform(-3, 3)
+                        'dx': random.uniform(-18, 18), 'dy': random.uniform(-18, 18)
                     })
                 
                 # Pokud nepřítel zemře, respawnujeme ho (jednoduchý systém)
@@ -1800,19 +1818,6 @@ while running:
 
     # --- Vykreslování uživatelského rozhraní (HUD) ---
 
-    # Zobrazení aktuálních souřadnic hráče vlevo nahoře
-    player_text = f"Player: {int(x)}, {int(y)}"
-    player_surf = font.render(player_text, True, (255, 255, 255)) # Vykreslení textu bílou barvou
-
-    bg_width = player_surf.get_width() + 10
-    bg_height = player_surf.get_height() + 10
-
-    # Poloprůhledné černé pozadí pod textem, aby byl čitelný
-    text_bg = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
-    text_bg.fill((0, 0, 0, 180))
-
-    screen.blit(text_bg, (10, 10))
-    screen.blit(player_surf, (15, 13))
 
     # Zobrazení zdraví hráče (animované orby)
     orb_spacing = 35
@@ -1825,7 +1830,8 @@ while running:
     bg_height = 50 + padding * 2
     
     health_bg = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
-    health_bg.fill((0, 0, 0, 180))
+    pygame.draw.rect(health_bg, (30, 40, 70, 210), (0, 0, bg_width, bg_height), border_radius=12)
+    pygame.draw.rect(health_bg, (80, 140, 255), (0, 0, bg_width, bg_height), 2, border_radius=12)
     health_bg_y = height - bg_height - 10
     
     screen.blit(health_bg, (10, health_bg_y))
@@ -1968,7 +1974,8 @@ while running:
         fps = clock.get_fps()
         fps_text = font.render(f"FPS: {int(fps)}", True, (255, 255, 255))
         fps_bg = pygame.Surface((fps_text.get_width() + 10, fps_text.get_height() + 10), pygame.SRCALPHA)
-        fps_bg.fill((0, 0, 0, 180))
+        pygame.draw.rect(fps_bg, (30, 40, 70, 180), (0, 0, fps_bg.get_width(), fps_bg.get_height()), border_radius=8)
+        pygame.draw.rect(fps_bg, (80, 140, 255), (0, 0, fps_bg.get_width(), fps_bg.get_height()), 2, border_radius=8)
         screen.blit(fps_bg, (width - fps_text.get_width() - 20, 10))
         screen.blit(fps_text, (width - fps_text.get_width() - 15, 13))
 
@@ -1983,6 +1990,9 @@ while running:
 
     # Tato funkce vezme vše, co jsme během snímku nakreslili do paměti a plácne to na monitor naráz
     pygame.display.flip()
+
+    # Navrácení původní pozice kamery (zrušení offsetu z otřesu pro další výpočty pohybu)
+    camera_x, camera_y = temp_camera_x, temp_camera_y
     
     # Omezovač FPS - zajišťuje, že hra nepoběží rychleji než na určený cíl (target_fps)
     clock.tick(target_fps)

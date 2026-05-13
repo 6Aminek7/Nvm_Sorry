@@ -112,6 +112,10 @@ attack_angle = 0    # Úhel zamknutý při zahájení útoku
 # Systém nepřítele
 enemy_hp = 6
 max_enemy_hp = 6
+enemy_dash_timer = 0
+enemy_dash_cooldown = 0
+enemy_is_dashing = False
+enemy_dash_x, enemy_dash_y = 0, 0
 
 # Default values (Výchozí startovní souřadnice pro případ, že na mapě chybí P a E)
 start_x, start_y = 100, 100
@@ -161,6 +165,7 @@ def reset_game_world():
     global pickup_notifications, healing_platform_glow, checkpoint_x, checkpoint_y
     global camera_x, camera_y, wobble_time, wobble_amp, particles
     global current_weapon, unlocked_weapons
+    global enemy_dash_timer, enemy_dash_cooldown, enemy_is_dashing
 
     # Nastavení hráče na jeho startovní souřadnice nalezené v mapě
     x, y = start_x, start_y
@@ -182,6 +187,11 @@ def reset_game_world():
     wobble_time = 0.0 # Časovač pro pohupování
     wobble_amp = 0.0  # Síla pohupování (0 = stojí)
     particles = []    # Vyčištění seznamu částic
+    
+    # Reset dash parametrů nepřítele
+    enemy_dash_timer = 0
+    enemy_dash_cooldown = 0
+    enemy_is_dashing = False
 
     # Reset kamery tak, aby vycentrovala hráče
     camera_x = x - (width / 2) / zoom
@@ -394,6 +404,37 @@ def create_pixel_weapon(weapon_type, size=96): # Zvětšená základní plocha p
             pygame.draw.rect(surf, core_color, (i*px, 4.5*px, px, px))
         pygame.draw.rect(surf, glow_color, (1*px, 5*px, px, px))
 
+    return surf
+
+def create_bug_texture(size):
+    """Procedurálně vytvoří pixel-artovou mouchu (nepřítele)."""
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    px = size // 10
+    
+    # Křídla (zadní vrstva, poloprůhledná)
+    wing_color = (180, 220, 255, 120)
+    pygame.draw.ellipse(surf, wing_color, (2*px, 0*px, 4*px, 3*px)) # Horní křídlo
+    pygame.draw.ellipse(surf, wing_color, (2*px, 7*px, 4*px, 3*px)) # Dolní křídlo
+
+    # Tělo (tmavě modrá/černá)
+    body_color = (30, 30, 50)
+    pygame.draw.ellipse(surf, body_color, (2*px, 3*px, 7*px, 4*px))
+    
+    # Detail na zádech (stínování)
+    pygame.draw.ellipse(surf, (50, 50, 80), (3*px, 4*px, 4*px, 2*px))
+
+    # Oči (zářivě tyrkysová, aby to sedělo do Labyrintu)
+    eye_color = (100, 255, 255)
+    pygame.draw.circle(surf, eye_color, (int(8.5*px), int(4.2*px)), px//2 + 1)
+    pygame.draw.circle(surf, eye_color, (int(8.5*px), int(5.8*px)), px//2 + 1)
+    
+    # Nožičky (drobné výčnělky)
+    leg_color = (20, 20, 40)
+    pygame.draw.line(surf, leg_color, (4*px, 3*px), (3*px, 1*px), 2)
+    pygame.draw.line(surf, leg_color, (6*px, 3*px), (7*px, 1*px), 2)
+    pygame.draw.line(surf, leg_color, (4*px, 7*px), (3*px, 9*px), 2)
+    pygame.draw.line(surf, leg_color, (6*px, 7*px), (7*px, 9*px), 2)
+        
     return surf
 
 # Vlastnosti hitboxů zbraní (dosah, úhel rozptylu a poškození)
@@ -997,7 +1038,7 @@ game_state = "MAIN_MENU"
 textura_zed = get_texture("wall.png", (100, 100, 100), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
 textura_zamcena_zed = get_texture("locked_wall.png", (139, 69, 19), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
 textura_hrac = get_texture("player.png", color, (player_draw_size, player_draw_size))
-textura_nepritel = get_texture("enemy.png", enemy_color, (enemy_draw_size, enemy_draw_size))
+textura_nepritel = create_bug_texture(enemy_draw_size)
 textura_klic_icon = get_texture("key.png", (255, 215, 0), (50, 50))
 textura_slime_orb = get_texture("slime_orb.png", (0, 188, 212), (30, 30))
 textura_slime_orb_eyes = get_texture("slime_orb_eyes.png", (33, 150, 243), (50, 50))
@@ -1328,15 +1369,61 @@ while running:
         last_saved_platform_idx = -1
 
     # --- Umělá inteligence nepřítele (Enemy AI) ---
-    # Nepřítel se neustále snaží dostat přímo k hráči (jednoduché pronásledování)
     dx_enemy = x - enemy_x
     dy_enemy = y - enemy_y
     distance_enemy = math.hypot(dx_enemy, dy_enemy) # Vzdálenost mezi hráčem a nepřítelem
-    if distance_enemy > 0:
-        speed_enemy = min(enemy_speed, distance_enemy)
-        move_x_enemy = (dx_enemy / distance_enemy) * speed_enemy
-        move_y_enemy = (dy_enemy / distance_enemy) * speed_enemy
 
+    # Logika Dash útoku (prudký výpad mouchy)
+    dash_range = 450 # Vzdálenost, při které moucha začne útok
+    dash_speed_mult = 5.5 # Kolikrát je dash rychlejší než normální pohyb
+    
+    move_x_enemy = 0
+    move_y_enemy = 0
+
+    if not enemy_is_dashing:
+        if enemy_dash_cooldown > 0:
+            enemy_dash_cooldown -= 1
+        elif distance_enemy < dash_range and distance_enemy > 0:
+            # Spuštění dashe - moucha se zaměří na hráče a vyrazí
+            enemy_is_dashing = True
+            enemy_dash_timer = 25 # Trvání dashe v počtu snímků
+            enemy_dash_x = (dx_enemy / distance_enemy) * enemy_speed * dash_speed_mult
+            enemy_dash_y = (dy_enemy / distance_enemy) * enemy_speed * dash_speed_mult
+            
+            # Efekt prachu/vzduchu při startu dashe
+            for _ in range(10):
+                particles.append({
+                    'x': enemy_x + enemy_size / 2, 'y': enemy_y + enemy_size / 2,
+                    'radius': random.uniform(4, 8), 'life': 15,
+                    'color': (150, 200, 255), 'dx': random.uniform(-5, 5), 'dy': random.uniform(-5, 5)
+                })
+
+    if enemy_is_dashing:
+        move_x_enemy = enemy_dash_x
+        move_y_enemy = enemy_dash_y
+        enemy_dash_timer -= 1
+        
+        # Zanechávání stop (trail) částic během dashe pro vizuální efekt rychlosti
+        if random.random() < 0.4:
+            particles.append({
+                'x': enemy_x + enemy_size / 2 + random.uniform(-10, 10), 
+                'y': enemy_y + enemy_size / 2 + random.uniform(-10, 10),
+                'radius': random.uniform(3, 6), 'life': 10,
+                'color': (100, 150, 255, 150), 'dx': 0, 'dy': 0
+            })
+            
+        if enemy_dash_timer <= 0:
+            enemy_is_dashing = False
+            enemy_dash_cooldown = 70 # Doba odpočinku po dashi
+    else:
+        # Klasické pronásledování (pomalý let k hráči)
+        if distance_enemy > 0:
+            speed_enemy = min(enemy_speed, distance_enemy)
+            move_x_enemy = (dx_enemy / distance_enemy) * speed_enemy
+            move_y_enemy = (dy_enemy / distance_enemy) * speed_enemy
+
+    # Pohyb nepřítele a kolize se zdmi
+    if move_x_enemy != 0 or move_y_enemy != 0:
         # Pohyb nepřítele a kolize se zdmi (Osa X)
         new_enemy_x = enemy_x + move_x_enemy
         enemy_rect_x = pygame.Rect(new_enemy_x, enemy_y, enemy_size, enemy_size)
@@ -1344,6 +1431,9 @@ while running:
         
         if not collision_enemy_x:
             enemy_x = new_enemy_x
+        elif enemy_is_dashing:
+            enemy_is_dashing = False # Přerušení dashe při nárazu do zdi
+            enemy_dash_cooldown = 40
 
         # Pohyb nepřítele a kolize se zdmi (Osa Y)
         new_enemy_y = enemy_y + move_y_enemy
@@ -1352,6 +1442,9 @@ while running:
         
         if not collision_enemy_y:
             enemy_y = new_enemy_y
+        elif enemy_is_dashing:
+            enemy_is_dashing = False
+            enemy_dash_cooldown = 40
 
     ## Kontrola kolize (dotyku) mezi hráčem a nepřítelem
     if pygame.Rect(x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size).colliderect(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size)):
@@ -1370,17 +1463,17 @@ while running:
         ## Po zásahu se nepřítel resetuje na svou původní startovní pozici
         enemy_x = start_enemy_x
         enemy_y = start_enemy_y
+        enemy_is_dashing = False
+        enemy_dash_cooldown = 30
         
         # Pokud hráči dojdou životy, zobrazí se obrazovka smrti
         if player_health == 0:
             death_messages = [
-                "Death can have me, when it earns me.",
+                "Worse than Gajdacz",
                 "Wasted!",
-                "Your adventure is done.",
-                "The Labyrinth claims another victim.",
-                "You Died",
-                "Quit the game already",
-                "You didn't survive."
+                "Shoutout to Ondřej Pieter",
+                "Don't tell Gajdacz this was Jew's fault",
+                "Are you Gajdacz?",
             ]
             dead_text = random.choice(death_messages)
             dead_surf = dead_font.render(dead_text, True, (115, 110, 110))
@@ -1597,7 +1690,7 @@ while running:
                 # Zásah nepřítele!
                 enemy_hp -= props['damage']
                 
-                # Vytvoření efektu krve/jisker na pozici nepřítele (ultra-rychlé)
+                # Vytvoření efektu krve/jisker na pozici nepřítele (67ultra-rychlé)
                 for _ in range(15):
                     particles.append({
                         'x': enemy_center_world_x, 'y': enemy_center_world_y,
@@ -1606,7 +1699,7 @@ while running:
                         'dx': random.uniform(-18, 18), 'dy': random.uniform(-18, 18)
                     })
                 
-                # Pokud nepřítel zemře, respawnujeme ho (jednoduchý systém)
+                # Pokud nepřítel zemře, respawnujeme ho (jednoduchý system)
                 if enemy_hp <= 0:
                     enemy_x, enemy_y = start_enemy_x, start_enemy_y
                     enemy_hp = max_enemy_hp
@@ -1667,11 +1760,32 @@ while running:
                 enemy_visible = True
                 break
 
-    # Nakreslení enemy
+    # Nakreslení enemy (moucha)
     if enemy_visible:
-        enemy_draw_x = int((enemy_x - camera_x) * zoom)
-        enemy_draw_y = int((enemy_y - camera_y) * zoom)
-        screen.blit(textura_nepritel, (enemy_draw_x, enemy_draw_y))
+        # Výpočet úhlu k hráči pro rotaci mouchy
+        dx_e = player_center_world_x - enemy_center_world_x
+        dy_e = player_center_world_y - enemy_center_world_y
+        angle_e = math.degrees(math.atan2(dy_e, dx_e))
+        
+        # Přidání efektu bzučení (náhodné drobné posuny pro efekt mouchy)
+        buzz_t = pygame.time.get_ticks() * 0.02
+        buzz_x = math.sin(buzz_t) * 4
+        buzz_y = math.cos(buzz_t * 1.3) * 4
+        
+        enemy_draw_x = int((enemy_x + buzz_x - camera_x) * zoom)
+        enemy_draw_y = int((enemy_y + buzz_y - camera_y) * zoom)
+        
+        # Rotace textury (moucha se dívá na hráče)
+        # Pygame rotuje proti směru hodinových ručiček, proto použijeme záporný úhel
+        rotated_enemy = pygame.transform.rotate(textura_nepritel, -angle_e)
+        
+        # Vycentrování rotované textury na pozici nepřítele
+        enemy_rect = rotated_enemy.get_rect(center=(
+            enemy_draw_x + int(enemy_draw_size / 2),
+            enemy_draw_y + int(enemy_draw_size / 2)
+        ))
+        
+        screen.blit(rotated_enemy, enemy_rect)
 
 
     # --- FOG OF WAR (Mlha války / Zorné pole) ---

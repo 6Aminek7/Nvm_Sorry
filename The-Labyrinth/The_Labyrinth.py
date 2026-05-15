@@ -49,8 +49,8 @@ maze_layout = [
     "W     W W W       W W       W           W W W W W        W W",
     "W WWW W W W WWWWW W W WWWWWWWWWWW WWWWW W W W W W WWWWWW W W",
     "W   W W W W     W W W W   D             W W   W W W    W W W",
-    "W WWW W W WWWWW W W W W R  K W  W       W WWWWW W WWWW W W W",
-    "W   W W W       W W W W  H   P    E     W       W W    W W W",
+    "W WWW W W WWWWW W W W W R  K WE W       W WWWWW W WWWW W W W",
+    "W   W W W       W W W W  H   PF   E     W       W W    W W W",
     "WWWWW W WWWWWWWWW W W W  W  S W         W W WWWWW W WWWW W W",
     "W     W           W W W         C       W W W     W      W W",
     "W WWWWWWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWW W W WWWWW WWWWWW W",
@@ -58,9 +58,9 @@ maze_layout = [
     "W WWWWWWWWWWWWWWW W W WWWWWWWWWWWWWWWWWWW W W W WWWWWWWW W W",
     "W W             W W W W                   W W W W      W   W",
     "W W WWWWWWWWWWW W W W W WWWWWWWWWWWWWWWWW W W W W WWWW W W W",
-    "W W           W W W W W                 W W W W W    W W W W",
-    "W WWWWWWWWWWW W W W W W WWWWWWWWWWWWWWW W W W W WWWW W W W W",
-    "W             W W W   W                 W   W        W   W W",
+    "W W      W     W W W W W                 W W W W W    W W W W",
+    "W        W     W W W W W WWWWWWWWWWWWWWW W W W W WWWW W W W W",
+    "W        W     W W W   W                 W   W        W     W",
     "WWWWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW W",
     "W                                                          W",
     "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
@@ -102,24 +102,31 @@ items_on_ground = [] # Seznam předmětů ležících na mapě
 pickup_notifications = [] # Seznam pro zobrazení sebraných předmětů v rohu obrazovky
 healing_platforms = [] # Seznam léčivých platforem (checkpointů)
 healing_platform_glow = [] # Aktivní animace záblesku při aktivaci léčivé platformy
+decorations = []      # Seznam dekorací v labyrintu (krystaly, pavučiny, atd.)
+atmospheric_motes = [] # Plovoucí prachové částice pro atmosféru
 
 # Systém útoků
 is_attacking = False
 attack_timer = 0
 attack_duration = 15 # Trvání útoku v počtu snímků
 attack_angle = 0    # Úhel zamknutý při zahájení útoku
+player_invincibility_timer = 0 # Timer nesmrtelnosti po zásahu
 
-# Systém nepřítele
-enemy_hp = 6
+# Systém nepřátel
+enemies = []        # Seznam všech aktivních nepřátel
 max_enemy_hp = 6
-enemy_dash_timer = 0
-enemy_dash_cooldown = 0
-enemy_is_dashing = False
-enemy_dash_x, enemy_dash_y = 0, 0
 
-# Default values (Výchozí startovní souřadnice pro případ, že na mapě chybí P a E)
+# Systém dashe hráče
+player_dash_timer = 0
+player_dash_cooldown = 0
+player_is_dashing = False
+player_dash_x, player_dash_y = 0, 0
+DASH_COOLDOWN_TIME = 60 # Počet snímků mezi dashi (cca 0.75s při 120fps)
+DASH_DURATION = 5      # Trvání dashe v počtu snímků (zkráceno pro větší dynamiku)
+DASH_SPEED_MULT = 6.5   # Násobek rychlosti při dashi (zvýšeno pro větší rychlost)
+
+# Default values (Výchozí startovní souřadnice pro případ, že na mapě chybí P)
 start_x, start_y = 100, 100
-start_enemy_x, start_enemy_y = 650, 650
 
 # Procházení každého znaku v mapě (řádky a sloupce) pro tvorbu herního světa
 for row_idx, row in enumerate(maze_layout):
@@ -142,9 +149,8 @@ for row_idx, row in enumerate(maze_layout):
             start_x = int(col_idx * block_size + (block_size - size) / 2)
             start_y = int(row_idx * block_size + (block_size - size) / 2)
         elif cell == "E":
-            # Nastavení startovní pozice nepřítele (s ohledem na vycentrování)
-            start_enemy_x = int(col_idx * block_size + (block_size - enemy_size) / 2)
-            start_enemy_y = int(row_idx * block_size + (block_size - enemy_size) / 2)
+            # Původně nastavovalo startovní pozici pro jednoho nepřítele, nyní řešeno v reset_game_world
+            pass
         elif cell == "H":
             # Umístění léčivé platformy (checkpoint) na pozici bloku v mapě
             hp_rect = pygame.Rect(
@@ -161,65 +167,107 @@ last_saved_platform_idx = -1 # ID poslední platformy, kde se ukládalo
 
 def reset_game_world():
     """Resetuje všechny herní proměnné na výchozí hodnoty pro novou hru."""
-    global x, y, enemy_x, enemy_y, player_health, inventory, items_on_ground
+    global x, y, enemies, player_health, inventory, items_on_ground
     global pickup_notifications, healing_platform_glow, checkpoint_x, checkpoint_y
     global camera_x, camera_y, wobble_time, wobble_amp, particles
     global current_weapon, unlocked_weapons
-    global enemy_dash_timer, enemy_dash_cooldown, enemy_is_dashing
+    global player_dash_timer, player_dash_cooldown, player_is_dashing
+    global start_x, start_y
 
-    # Nastavení hráče na jeho startovní souřadnice nalezené v mapě
-    x, y = start_x, start_y
-    # Nastavení nepřítele na jeho startovní pozici
-    enemy_x, enemy_y = start_enemy_x, start_enemy_y
-    # Výchozí checkpoint je startovní pozice
-    checkpoint_x, checkpoint_y = start_x, start_y
+    # Reset parametrů
+    player_health = 6
+    inventory = []
+    current_weapon = None
+    unlocked_weapons = []
+    pickup_notifications = []
+    healing_platform_glow = []
+    wobble_time = 0.0
+    wobble_amp = 0.0
+    particles = []
     
-    # Reset základních parametrů hráče
-    player_health = 6       # Plný počet životů
-    inventory = []          # Prázdný inventář
-    current_weapon = None   # Reset aktuální zbraně
-    unlocked_weapons = []   # Reset odemčených zbraní
-    items_on_ground = []    # Vyčištění předmětů na zemi před novým načtením
-    pickup_notifications = [] # Vyčištění notifikací v rohu
-    healing_platform_glow = [] # Vyčištění efektů platforem
-    
-    # Reset animačních proměnných
-    wobble_time = 0.0 # Časovač pro pohupování
-    wobble_amp = 0.0  # Síla pohupování (0 = stojí)
-    particles = []    # Vyčištění seznamu částic
-    
-    # Reset dash parametrů nepřítele
-    enemy_dash_timer = 0
-    enemy_dash_cooldown = 0
-    enemy_is_dashing = False
+    walls.clear()
+    locked_walls.clear()
+    items_on_ground.clear()
+    enemies.clear()
+    healing_platforms.clear()
+    decorations.clear()
+    atmospheric_motes.clear()
 
-    # Reset kamery tak, aby vycentrovala hráče
-    camera_x = x - (width / 2) / zoom
-    camera_y = y - (height / 2) / zoom
-
-    # Znovu-procházení mapy a umístění předmětů na zem (klíče, upgrady)
+    # Procházení každého znaku v mapě (Single Pass)
     for row_idx, row in enumerate(maze_layout):
         for col_idx, cell in enumerate(row):
-            if cell == "K": # Písmeno K značí klíč
-                item_x = int(col_idx * block_size + block_size / 2)
-                item_y = int(row_idx * block_size + block_size / 2)
-                items_on_ground.append({'type': 'Key', 'x': item_x, 'y': item_y})
-            elif cell == "S": # Písmeno S značí Glitter Slime Ball
-                item_x = int(col_idx * block_size + block_size / 2)
-                item_y = int(row_idx * block_size + block_size / 2)
-                items_on_ground.append({'type': 'Glitter Slime Ball', 'x': item_x, 'y': item_y})
-            elif cell == "D": # Písmeno D značí zbraň Sword (Meč)
-                item_x = int(col_idx * block_size + block_size / 2)
-                item_y = int(row_idx * block_size + block_size / 2)
-                items_on_ground.append({'type': 'Sword', 'x': item_x, 'y': item_y})
-            elif cell == "R": # Písmeno R značí zbraň Spear (Kopí)
-                item_x = int(col_idx * block_size + block_size / 2)
-                item_y = int(row_idx * block_size + block_size / 2)
-                items_on_ground.append({'type': 'Spear', 'x': item_x, 'y': item_y})
-            elif cell == "C": # Písmeno C značí zbraň Scythe (Kosa)
-                item_x = int(col_idx * block_size + block_size / 2)
-                item_y = int(row_idx * block_size + block_size / 2)
-                items_on_ground.append({'type': 'Scythe', 'x': item_x, 'y': item_y})
+            rx, ry = int(col_idx * block_size), int(row_idx * block_size)
+            rect = pygame.Rect(rx, ry, block_size, block_size)
+
+            if cell == "W":
+                walls.append(rect)
+                # Dekorace na zdech
+                if random.random() < 0.15:
+                    decorations.append({'type': 'Vine', 'x': rx + random.randint(0, block_size-64), 'y': ry + random.randint(0, block_size-64), 'angle': random.choice([0, 90, 180, 270])})
+            elif cell == "L":
+                locked_walls.append(rect)
+            elif cell == "P":
+                x = int(rx + (block_size - size) / 2)
+                y = int(ry + (block_size - size) / 2)
+                start_x, start_y = x, y
+                checkpoint_x, checkpoint_y = x, y
+            elif cell == "H":
+                healing_platforms.append(rect)
+            elif cell == "K":
+                items_on_ground.append({'type': 'Key', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
+            elif cell == "E":
+                ex, ey = rx + (block_size - enemy_size) // 2, ry + (block_size - enemy_size) // 2
+                enemies.append({'x': ex, 'y': ey, 'start_x': ex, 'start_y': ey, 'hp': max_enemy_hp, 'dash_timer': 0, 'dash_cooldown': 0, 'is_dashing': False, 'dash_x': 0, 'dash_y': 0, 'buzz_offset': random.uniform(0, 100), 'respawn_timer': 0})
+            elif cell == "S":
+                items_on_ground.append({'type': 'Glitter Slime Ball', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
+            elif cell == "D":
+                items_on_ground.append({'type': 'Sword', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
+            elif cell == "R":
+                items_on_ground.append({'type': 'Spear', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
+            elif cell == "C":
+                items_on_ground.append({'type': 'Scythe', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
+            elif cell == "F":
+                items_on_ground.append({'type': 'Feather', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
+            elif cell == " ":
+                # Dekorace na podlaze
+                if random.random() < 0.04:
+                    c_type = random.choice(['Blue', 'Purple', 'Teal'])
+                    # Aktualizované barvy záře pro modré varianty
+                    if c_type == 'Blue':
+                        c_color = (0, 100, 255)
+                    elif c_type == 'Purple': # Nyní Blue Light
+                        c_color = (111, 169, 209)
+                    else: # Nyní Blue Dark
+                        c_color = (0, 83, 194)
+                    
+                    decorations.append({
+                        'type': 'Crystal', 
+                        'subtype': c_type,
+                        'color': c_color,
+                        'x': rx + random.randint(15, block_size-47), 
+                        'y': ry + random.randint(15, block_size-47),
+                        'pulse_offset': random.uniform(0, math.pi * 2)
+                    })
+                elif random.random() < 0.06:
+                    is_near_wall = any(maze_layout[row_idx+dr][col_idx+dc] == "W" for dr, dc in [(0,1), (0,-1), (1,0), (-1,0)] if 0 <= row_idx+dr < len(maze_layout) and 0 <= col_idx+dc < len(maze_layout[0]))
+                    if is_near_wall:
+                        decorations.append({'type': 'Cobweb', 'x': rx + random.randint(0, block_size-64), 'y': ry + random.randint(0, block_size-64)})
+
+    # Inicializace atmosférického prachu
+    for _ in range(120):
+        atmospheric_motes.append({
+            'x': random.uniform(0, len(maze_layout[0]) * block_size),
+            'y': random.uniform(0, len(maze_layout) * block_size),
+            'speed': random.uniform(0.2, 0.6),
+            'radius': random.uniform(1.5, 4),
+            'wobble': random.uniform(0, math.pi * 2),
+            'alpha': random.randint(40, 120)
+        })
+
+    player_dash_timer = player_dash_cooldown = 0
+    player_is_dashing = False
+    camera_x = x - (width / 2) / zoom
+    camera_y = y - (height / 2) / zoom
 
 def save_game(slot_id, slot_name=None):
     """Uloží aktuální stav hry do JSON souboru."""
@@ -235,8 +283,7 @@ def save_game(slot_id, slot_name=None):
         "name": slot_name,               # Jméno slotu zobrazené v menu
         "player_x": x,                   # Pozice X hráče
         "player_y": y,                   # Pozice Y hráče
-        "enemy_x": enemy_x,               # Pozice X nepřítele
-        "enemy_y": enemy_y,               # Pozice Y nepřítele
+        "enemies": enemies,              # Seznam nepřátel
         "player_health": player_health,  # Aktuální životy
         "inventory": inventory,          # Seznam věcí v inventáři
         "current_weapon": current_weapon,         # Aktuálně vybavená zbraň
@@ -261,7 +308,7 @@ def save_game(slot_id, slot_name=None):
 
 def load_game(slot_id):
     """Načte kompletní stav hry z JSON souboru."""
-    global x, y, enemy_x, enemy_y, player_health, inventory, items_on_ground
+    global x, y, enemies, player_health, inventory, items_on_ground
     global checkpoint_x, checkpoint_y, camera_x, camera_y, current_save_slot
     global current_weapon, unlocked_weapons
     
@@ -278,8 +325,7 @@ def load_game(slot_id):
         # Přiřazení načtených hodnot globálním proměnným hry
         x = data["player_x"]
         y = data["player_y"]
-        enemy_x = data["enemy_x"]
-        enemy_y = data["enemy_y"]
+        enemies = data.get("enemies", [])
         player_health = data["player_health"]
         inventory = data["inventory"]
         current_weapon = data.get("current_weapon", None)
@@ -318,7 +364,6 @@ def delete_save(slot_id):
 
 # Přiřazení počátečních hodnot aktuálním souřadnicím
 x, y = start_x, start_y
-enemy_x, enemy_y = start_enemy_x, start_enemy_y
 
 # Checkpoint - léčivá platforma uloží poslední bezpečnou pozici hráče
 checkpoint_x, checkpoint_y = start_x, start_y
@@ -366,6 +411,48 @@ def get_texture(filename, default_color, size_tuple, pixelate_size=None, colorke
     surf.fill(default_color)
     return surf
 
+def create_crystal_texture(size, color_base):
+    """Vytvoří texturu zářícího krystalu s danou základní barvou."""
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    r, g, b = color_base
+    glow_col = (max(0, r-50), max(0, g-50), max(0, b-50))
+    core_col = (min(255, r+100), min(255, g+100), min(255, b+100))
+    
+    pts = [(size//2, 2), (size-2, size//2), (size//2, size-2), (2, size//2)]
+    pygame.draw.polygon(surf, glow_col, pts)
+    pygame.draw.polygon(surf, core_col, [(size//2, 4), (size-4, size//2), (size//2, size-4), (4, size//2)], 2)
+    pygame.draw.circle(surf, (255, 255, 255), (size//2, size//2), 2)
+    return surf
+
+def create_vine_texture(size):
+    """Vytvoří texturu popínavých rostlin."""
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    for _ in range(5):
+        start = (random.randint(0, size), random.randint(0, size))
+        end = (random.randint(0, size), random.randint(0, size))
+        pygame.draw.line(surf, (20, 60, 40), start, end, 2)
+        pygame.draw.circle(surf, (30, 80, 50), end, 3)
+    return surf
+
+def create_cobweb_texture(size):
+    """Vytvoří texturu pavučiny."""
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    center = (size//2, size//2)
+    color = (150, 150, 160, 100)
+    for angle in range(0, 360, 45):
+        rad = math.radians(angle)
+        end = (center[0] + math.cos(rad) * size//2, center[1] + math.sin(rad) * size//2)
+        pygame.draw.line(surf, color, center, end, 1)
+    for r in range(4, size//2, 6):
+        prev_pt = None
+        for angle in range(0, 361, 45):
+            rad = math.radians(angle)
+            curr_pt = (center[0] + math.cos(rad) * r, center[1] + math.sin(rad) * r)
+            if prev_pt:
+                pygame.draw.line(surf, color, prev_pt, curr_pt, 1)
+            prev_pt = curr_pt
+    return surf
+
 def create_pixel_weapon(weapon_type, size=96): # Zvětšená základní plocha pro delší zbraně
     """Procedurálně vytvoří pixel-artovou zbraň v modré barvě s průhledným pozadím."""
     surf = pygame.Surface((size, size), pygame.SRCALPHA)
@@ -406,6 +493,8 @@ def create_pixel_weapon(weapon_type, size=96): # Zvětšená základní plocha p
 
     return surf
 
+    return surf
+
 def create_bug_texture(size):
     """Procedurálně vytvoří pixel-artovou mouchu (nepřítele)."""
     surf = pygame.Surface((size, size), pygame.SRCALPHA)
@@ -436,6 +525,42 @@ def create_bug_texture(size):
     pygame.draw.line(surf, leg_color, (6*px, 7*px), (7*px, 9*px), 2)
         
     return surf
+
+def create_feather_texture(size):
+    """Procedurálně vytvoří pixel-artové pírko ve stylu Glitter Ballu."""
+    pixel_size = 16
+    temp_surf = pygame.Surface((pixel_size, pixel_size), pygame.SRCALPHA)
+    
+    color_main = (240, 245, 255)
+    color_shadow = (180, 200, 230)
+    color_accent = (100, 200, 255)
+    
+    # Brko (střed)
+    for i in range(4, 12):
+        temp_surf.set_at((i, 15-i), color_shadow)
+    
+    # Vějíř pírka
+    vane_pixels = [
+        (5,9), (5,8), (6,8), (6,7), (7,7), (7,6), (8,6), (8,5), (9,5), (9,4), (10,4), (10,3),
+        (7,11), (8,11), (8,10), (9,10), (9,9), (10,9), (10,8), (11,8), (11,7)
+    ]
+    for p in vane_pixels:
+        temp_surf.set_at(p, color_main)
+
+    # Akcenty/stíny
+    temp_surf.set_at((8,8), color_accent)
+    temp_surf.set_at((6,10), color_accent)
+    temp_surf.set_at((10,5), color_shadow)
+
+    # Zvětšení s pixelovým efektem
+    final_surf = pygame.transform.scale(temp_surf, (size, size))
+    
+    # Ambientní záře
+    glow = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(glow, (150, 220, 255, 40), (size//2, size//2), size//2)
+    final_surf.blit(glow, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+        
+    return final_surf
 
 # Vlastnosti hitboxů zbraní (dosah, úhel rozptylu a poškození)
 WEAPON_HITBOX_PROPS = {
@@ -977,7 +1102,16 @@ def show_inventory(screen, clock, bg_copy):
                 desc = item_font.render("(Passive: Increased Speed)", True, (120, 180, 180))
                 screen.blit(desc, (upgrades_x + 70, start_y + 120 + idx * 70))
         
-        if not upgrade_items:
+        feather_items = [item for item in inventory if item == "Feather"]
+        for idx, item in enumerate(feather_items):
+            f_offset = len(upgrade_items) * 70
+            text = item_font.render("Feather", True, (240, 245, 255))
+            screen.blit(textura_feather_icon, (upgrades_x, start_y + 80 + f_offset + idx * 70))
+            screen.blit(text, (upgrades_x + 70, start_y + 90 + f_offset + idx * 70))
+            desc = item_font.render("(Active: Dash - RMB)", True, (150, 200, 255))
+            screen.blit(desc, (upgrades_x + 70, start_y + 120 + f_offset + idx * 70))
+        
+        if not upgrade_items and not feather_items:
             empty_text = item_font.render("No upgrades...", True, (100, 120, 100))
             screen.blit(empty_text, (upgrades_x, start_y + 80))
 
@@ -1049,6 +1183,16 @@ textura_weapon_sword  = create_pixel_weapon('Sword', 96)
 textura_weapon_spear  = create_pixel_weapon('Spear', 96)
 textura_weapon_scythe = create_pixel_weapon('Scythe', 96)
 textura_weapon_icon   = pygame.transform.scale(textura_weapon_sword, (50, 50)) # Ikona je zmenšený meč
+textura_feather = create_feather_texture(50)
+textura_feather_icon = pygame.transform.scale(textura_feather, (50, 50))
+
+# --- Textury dekorací ---
+textura_crystal_blue = create_crystal_texture(32, (0, 150, 255))
+textura_crystal_blue_light = create_crystal_texture(32, (111, 169, 209))
+textura_crystal_blue_dark = create_crystal_texture(32, (0, 83, 194))
+
+textura_vine = create_vine_texture(64)
+textura_cobweb = create_cobweb_texture(64)
 
 WEAPON_TEXTURES = {'Sword': textura_weapon_sword, 'Spear': textura_weapon_spear, 'Scythe': textura_weapon_scythe}
 
@@ -1132,6 +1276,31 @@ while running:
                 rel_x = mouse_x - (draw_x_tmp + player_draw_size // 2)
                 rel_y = mouse_y - (draw_y_tmp + player_draw_size // 2)
                 attack_angle = math.degrees(math.atan2(rel_y, rel_x))
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+            # Mechanika dashe (pravé tlačítko myši)
+            if "Feather" in inventory and player_dash_cooldown == 0 and not player_is_dashing:
+                player_is_dashing = True
+                player_dash_timer = DASH_DURATION
+                player_dash_cooldown = DASH_COOLDOWN_TIME
+                
+                # Výpočet směru k myši pro dash
+                draw_x_tmp = int((x - camera_x) * zoom)
+                draw_y_tmp = int((y - camera_y) * zoom)
+                rel_x = mouse_x - (draw_x_tmp + player_draw_size // 2)
+                rel_y = mouse_y - (draw_y_tmp + player_draw_size // 2)
+                dist = math.hypot(rel_x, rel_y)
+                if dist > 0:
+                    player_dash_x = (rel_x / dist) * 8 * DASH_SPEED_MULT # Použijeme základní rychlost * násobek
+                    player_dash_y = (rel_y / dist) * 8 * DASH_SPEED_MULT
+                
+                # Startovací efekt dashe
+                for _ in range(12):
+                    particles.append({
+                        'x': x + size / 2, 'y': y + size / 2,
+                        'radius': random.uniform(5, 10), 'life': 20,
+                        'color': (200, 240, 255), 'dx': random.uniform(-6, 6), 'dy': random.uniform(-6, 6)
+                    })
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_b:
@@ -1248,13 +1417,40 @@ while running:
     dy = world_mouse_y - (y + size / 2)
     distance = math.hypot(dx, dy) # Přepona pravoúhlého trojúhelníku (celková vzdálenost)
     player_moved = False # Proměnná sledující, zda se hráč v tomto snímku pohnul
-    
-    if distance > 1.0: # Pokud nejsme přesně na myši, budeme se pohybovat
+
+    # --- Logika pohybu a dashe ---
+    move_x = 0
+    move_y = 0
+
+    if player_is_dashing:
+        move_x = player_dash_x
+        move_y = player_dash_y
+        player_dash_timer -= 1
+        player_moved = True
+        
+        # Trail efekt během dashe
+        if random.random() < 0.6:
+            particles.append({
+                'x': x + size / 2 + random.uniform(-15, 15), 
+                'y': y + size / 2 + random.uniform(-15, 15),
+                'radius': random.uniform(4, 8), 'life': 12,
+                'color': (150, 220, 255, 180), 'dx': 0, 'dy': 0
+            })
+            
+        if player_dash_timer <= 0:
+            player_is_dashing = False
+    elif distance > 1.0: # Pokud nejsme přesně na myši, budeme se pohybovat
         # Vypočítáme aktuální rychlost (sprint pokud máme Glitter Slime Ball)
         current_speed = 8 if "Glitter Slime Ball" in inventory else 5
         speed = min(current_speed, distance) # Omezíme rychlost na maximálně 5 pixelů (aby hráč nevyletěl moc rychle)
         move_x = (dx / distance) * speed # Posun v ose X
         move_y = (dy / distance) * speed # Posun v ose Y
+
+    # Aktualizace cooldownu dashe
+    if player_dash_cooldown > 0:
+        player_dash_cooldown -= 1
+
+    if move_x != 0 or move_y != 0:
 
 
         # Pohyb a kontrola kolize (nárazu do zdi) v horizontálním směru (osa X)
@@ -1279,6 +1475,10 @@ while running:
                     pygame.time.delay(4000) # Počkáme 4 sekundy
                     running = False # Ukončíme hru
                 collision_x = True # Pokud klíč nemáme, dveře fungují jako zeď
+        
+        # Pokud došlo ke kolizi při dashi, ukončíme dash
+        if collision_x and player_is_dashing:
+            player_is_dashing = False
 
         # Pokud nedošlo k žádné kolizi, provedeme pohyb
         if not collision_x:
@@ -1304,6 +1504,9 @@ while running:
                     pygame.time.delay(4000)
                     running = False
                 collision_y = True
+        
+        if collision_y and player_is_dashing:
+            player_is_dashing = False
 
         if not collision_y:
             y = new_y
@@ -1330,6 +1533,10 @@ while running:
         wobble_amp = max(0.0, wobble_amp - 0.1)
         if wobble_amp > 0:
             wobble_time += 0.30 # Necháme doznívat animaci
+
+    # Aktualizace timeru nesmrtelnosti
+    if player_invincibility_timer > 0:
+        player_invincibility_timer -= 1
 
     # --- Kontrola kolize s léčivou platformou (checkpoint) ---
     player_hitbox = pygame.Rect(x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size)
@@ -1368,129 +1575,150 @@ while running:
     if not on_any_platform:
         last_saved_platform_idx = -1
 
-    # --- Umělá inteligence nepřítele (Enemy AI) ---
-    dx_enemy = x - enemy_x
-    dy_enemy = y - enemy_y
-    distance_enemy = math.hypot(dx_enemy, dy_enemy) # Vzdálenost mezi hráčem a nepřítelem
+    # --- Umělá inteligence nepřátel (Enemy AI) ---
+    for enemy in enemies:
+        # Přeskočíme nepřátele, kteří čekají na respawn
+        if enemy.get('respawn_timer', 0) > 0:
+            enemy['respawn_timer'] -= 1
+            continue
 
-    # Logika Dash útoku (prudký výpad mouchy)
-    dash_range = 450 # Vzdálenost, při které moucha začne útok
-    dash_speed_mult = 5.5 # Kolikrát je dash rychlejší než normální pohyb
-    
-    move_x_enemy = 0
-    move_y_enemy = 0
+        dx_enemy = x - enemy['x']
+        dy_enemy = y - enemy['y']
+        distance_enemy = math.hypot(dx_enemy, dy_enemy) # Vzdálenost mezi hráčem a nepřítelem
 
-    if not enemy_is_dashing:
-        if enemy_dash_cooldown > 0:
-            enemy_dash_cooldown -= 1
-        elif distance_enemy < dash_range and distance_enemy > 0:
-            # Spuštění dashe - moucha se zaměří na hráče a vyrazí
-            enemy_is_dashing = True
-            enemy_dash_timer = 25 # Trvání dashe v počtu snímků
-            enemy_dash_x = (dx_enemy / distance_enemy) * enemy_speed * dash_speed_mult
-            enemy_dash_y = (dy_enemy / distance_enemy) * enemy_speed * dash_speed_mult
+        # --- Kontrola Line of Sight (aby moucha neviděla skrz zdi) ---
+        has_los = False
+        if distance_enemy < 1000: # Maximální dosah zraku
+            # Zjednodušený test viditelnosti (přímka mezi nepřítelem a hráčem)
+            los_line = ((enemy['x'] + enemy_size/2, enemy['y'] + enemy_size/2), (x + size/2, y + size/2))
             
-            # Efekt prachu/vzduchu při startu dashe
-            for _ in range(10):
+            # Najdeme jen zdi v okolí pro optimalizaci
+            los_rect = pygame.Rect(min(x, enemy['x']), min(y, enemy['y']), abs(x - enemy['x']), abs(y - enemy['y']))
+            los_rect.inflate_ip(100, 100)
+            nearby_walls = [w for w in walls if los_rect.colliderect(w)] + [w for w in locked_walls if los_rect.colliderect(w)]
+            
+            has_los = True
+            for wall in nearby_walls:
+                if wall.clipline(*los_line):
+                    has_los = False
+                    break
+        
+        # Logika Dash útoku (prudký výpad mouchy)
+        dash_range = 450 # Vzdálenost, při které moucha začne útok
+        dash_speed_mult = 5.5 # Kolikrát je dash rychlejší než normální pohyb
+        
+        move_x_enemy = 0
+        move_y_enemy = 0
+
+        if not enemy['is_dashing']:
+            if enemy['dash_cooldown'] > 0:
+                enemy['dash_cooldown'] -= 1
+            elif has_los and distance_enemy < dash_range and distance_enemy > 0:
+                # Spuštění dashe - moucha se zaměří na hráče a vyrazí
+                enemy['is_dashing'] = True
+                enemy['dash_timer'] = 25 # Trvání dashe v počtu snímků
+                enemy['dash_x'] = (dx_enemy / distance_enemy) * enemy_speed * dash_speed_mult
+                enemy['dash_y'] = (dy_enemy / distance_enemy) * enemy_speed * dash_speed_mult
+                
+                # Efekt prachu/vzduchu při startu dashe
+                for _ in range(10):
+                    particles.append({
+                        'x': enemy['x'] + enemy_size / 2, 'y': enemy['y'] + enemy_size / 2,
+                        'radius': random.uniform(4, 8), 'life': 15,
+                        'color': (150, 200, 255), 'dx': random.uniform(-5, 5), 'dy': random.uniform(-5, 5)
+                    })
+
+        if enemy['is_dashing']:
+            move_x_enemy = enemy['dash_x']
+            move_y_enemy = enemy['dash_y']
+            enemy['dash_timer'] -= 1
+            
+            # Zanechávání stop (trail) částic během dashe pro vizuální efekt rychlosti
+            if random.random() < 0.4:
                 particles.append({
-                    'x': enemy_x + enemy_size / 2, 'y': enemy_y + enemy_size / 2,
-                    'radius': random.uniform(4, 8), 'life': 15,
-                    'color': (150, 200, 255), 'dx': random.uniform(-5, 5), 'dy': random.uniform(-5, 5)
+                    'x': enemy['x'] + enemy_size / 2 + random.uniform(-10, 10), 
+                    'y': enemy['y'] + enemy_size / 2 + random.uniform(-10, 10),
+                    'radius': random.uniform(3, 6), 'life': 10,
+                    'color': (100, 150, 255, 150), 'dx': 0, 'dy': 0
+                })
+                
+            if enemy['dash_timer'] <= 0:
+                enemy['is_dashing'] = False
+                enemy['dash_cooldown'] = 70 # Doba odpočinku po dashi
+        else:
+            # Klasické pronásledování (pomalý let k hráči) - pouze pokud vidí hráče
+            if has_los and distance_enemy > 0:
+                speed_enemy = min(enemy_speed, distance_enemy)
+                move_x_enemy = (dx_enemy / distance_enemy) * speed_enemy
+                move_y_enemy = (dy_enemy / distance_enemy) * speed_enemy
+
+        # Pohyb nepřítele a kolize se zdmi
+        if move_x_enemy != 0 or move_y_enemy != 0:
+            # Pohyb nepřítele a kolize se zdmi (Osa X)
+            new_enemy_x = enemy['x'] + move_x_enemy
+            enemy_rect_x = pygame.Rect(new_enemy_x, enemy['y'], enemy_size, enemy_size)
+            collision_enemy_x = enemy_rect_x.collidelist(walls) != -1 or enemy_rect_x.collidelist(locked_walls) != -1
+            
+            if not collision_enemy_x:
+                enemy['x'] = new_enemy_x
+            elif enemy['is_dashing']:
+                enemy['is_dashing'] = False # Přerušení dashe při nárazu do zdi
+                enemy['dash_cooldown'] = 40
+
+            # Pohyb nepřítele a kolize se zdmi (Osa Y)
+            new_enemy_y = enemy['y'] + move_y_enemy
+            enemy_rect_y = pygame.Rect(enemy['x'], new_enemy_y, enemy_size, enemy_size)
+            collision_enemy_y = enemy_rect_y.collidelist(walls) != -1 or enemy_rect_y.collidelist(locked_walls) != -1
+            
+            if not collision_enemy_y:
+                enemy['y'] = new_enemy_y
+            elif enemy['is_dashing']:
+                enemy['is_dashing'] = False
+                enemy['dash_cooldown'] = 40
+
+        ## Kontrola kolize (dotyku) mezi hráčem a nepřítelem
+        if player_invincibility_timer == 0 and pygame.Rect(x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size).colliderect(pygame.Rect(enemy['x'], enemy['y'], enemy_size, enemy_size)):
+            player_health = max(0, player_health - 1) # Hráč ztrácí jeden život
+            shake_intensity = 15.0 # Spuštění otřesu obrazovky
+            player_invincibility_timer = 60 # Krátká nesmrtelnost po zásahu
+
+            # Vytvoření efektu bílých ultra-rychlých částic při zásahu hráče
+            for _ in range(15):
+                particles.append({
+                    'x': x + size / 2, 'y': y + size / 2,
+                    'radius': random.uniform(6, 12), 'life': 20,
+                    'color': (255, 255, 255), # Bílá barva pro hráče
+                    'dx': random.uniform(-18, 18), 'dy': random.uniform(-18, 18)
                 })
 
-    if enemy_is_dashing:
-        move_x_enemy = enemy_dash_x
-        move_y_enemy = enemy_dash_y
-        enemy_dash_timer -= 1
-        
-        # Zanechávání stop (trail) částic během dashe pro vizuální efekt rychlosti
-        if random.random() < 0.4:
-            particles.append({
-                'x': enemy_x + enemy_size / 2 + random.uniform(-10, 10), 
-                'y': enemy_y + enemy_size / 2 + random.uniform(-10, 10),
-                'radius': random.uniform(3, 6), 'life': 10,
-                'color': (100, 150, 255, 150), 'dx': 0, 'dy': 0
-            })
+            # Poznámka: Nepřítel už se neresetuje na startovní pozici, proletí skrz hráče
             
-        if enemy_dash_timer <= 0:
-            enemy_is_dashing = False
-            enemy_dash_cooldown = 70 # Doba odpočinku po dashi
-    else:
-        # Klasické pronásledování (pomalý let k hráči)
-        if distance_enemy > 0:
-            speed_enemy = min(enemy_speed, distance_enemy)
-            move_x_enemy = (dx_enemy / distance_enemy) * speed_enemy
-            move_y_enemy = (dy_enemy / distance_enemy) * speed_enemy
+            # Pokud hráči dojdou životy, zobrazí se obrazovka smrti
+            if player_health == 0:
+                death_messages = [
+                    "Worse than Gajdacz",
+                    "Wasted!",
+                    "Shoutout to Ondřej Pieter",
+                ]
+                dead_text = random.choice(death_messages)
+                dead_surf = dead_font.render(dead_text, True, (115, 110, 110))
+                dead_bg = pygame.Surface((width, height), pygame.SRCALPHA)
+                dead_bg.fill((0, 0, 0, 220))
+                screen.blit(dead_bg, (0, 0))
+                screen.blit(dead_surf, ((width - dead_surf.get_width()) // 2, (height - dead_surf.get_height()) // 2))
+                pygame.display.flip()
+                pygame.time.delay(2000)
 
-    # Pohyb nepřítele a kolize se zdmi
-    if move_x_enemy != 0 or move_y_enemy != 0:
-        # Pohyb nepřítele a kolize se zdmi (Osa X)
-        new_enemy_x = enemy_x + move_x_enemy
-        enemy_rect_x = pygame.Rect(new_enemy_x, enemy_y, enemy_size, enemy_size)
-        collision_enemy_x = enemy_rect_x.collidelist(walls) != -1 or enemy_rect_x.collidelist(locked_walls) != -1
-        
-        if not collision_enemy_x:
-            enemy_x = new_enemy_x
-        elif enemy_is_dashing:
-            enemy_is_dashing = False # Přerušení dashe při nárazu do zdi
-            enemy_dash_cooldown = 40
-
-        # Pohyb nepřítele a kolize se zdmi (Osa Y)
-        new_enemy_y = enemy_y + move_y_enemy
-        enemy_rect_y = pygame.Rect(enemy_x, new_enemy_y, enemy_size, enemy_size)
-        collision_enemy_y = enemy_rect_y.collidelist(walls) != -1 or enemy_rect_y.collidelist(locked_walls) != -1
-        
-        if not collision_enemy_y:
-            enemy_y = new_enemy_y
-        elif enemy_is_dashing:
-            enemy_is_dashing = False
-            enemy_dash_cooldown = 40
-
-    ## Kontrola kolize (dotyku) mezi hráčem a nepřítelem
-    if pygame.Rect(x + hitbox_offset, y + hitbox_offset, hitbox_size, hitbox_size).colliderect(pygame.Rect(enemy_x, enemy_y, enemy_size, enemy_size)):
-        player_health = max(0, player_health - 1) # Hráč ztrácí jeden život
-        shake_intensity = 15.0 # Spuštění otřesu obrazovky
-
-        # Vytvoření efektu bílých ultra-rychlých částic při zásahu hráče
-        for _ in range(15):
-            particles.append({
-                'x': x + size / 2, 'y': y + size / 2,
-                'radius': random.uniform(6, 12), 'life': 20,
-                'color': (255, 255, 255), # Bílá barva pro hráče
-                'dx': random.uniform(-18, 18), 'dy': random.uniform(-18, 18)
-            })
-
-        ## Po zásahu se nepřítel resetuje na svou původní startovní pozici
-        enemy_x = start_enemy_x
-        enemy_y = start_enemy_y
-        enemy_is_dashing = False
-        enemy_dash_cooldown = 30
-        
-        # Pokud hráči dojdou životy, zobrazí se obrazovka smrti
-        if player_health == 0:
-            death_messages = [
-                "Worse than Gajdacz",
-                "Wasted!",
-                "Shoutout to Ondřej Pieter",
-                "Don't tell Gajdacz this was Jew's fault",
-                "Are you Gajdacz?",
-            ]
-            dead_text = random.choice(death_messages)
-            dead_surf = dead_font.render(dead_text, True, (115, 110, 110))
-            dead_bg = pygame.Surface((width, height), pygame.SRCALPHA)
-            dead_bg.fill((0, 0, 0, 220))
-            screen.blit(dead_bg, (0, 0))
-            screen.blit(dead_surf, ((width - dead_surf.get_width()) // 2, (height - dead_surf.get_height()) // 2))
-            pygame.display.flip()
-            pygame.time.delay(2000)
-
-
-            # Respawn hráče na posledním checkpointu (léčivé platformě nebo startu)
-            player_health = 6
-            x = checkpoint_x
-            y = checkpoint_y
-            enemy_x = start_enemy_x
-            enemy_y = start_enemy_y
+                # Respawn hráče na posledním checkpointu (léčivé platformě nebo startu)
+                player_health = 6
+                x = checkpoint_x
+                y = checkpoint_y
+                # Resetujeme VŠECHNY nepřátele na jejich startovní pozice
+                for e in enemies:
+                    e['x'], e['y'] = e['start_x'], e['start_y']
+                    e['is_dashing'] = False
+                    e['dash_cooldown'] = 30
+                break # Přerušíme AI loop, protože hráč už je jinde a scéna se resetovala
 
     # --- Aktualizace kamery ---
     # Kamera se posouvá jen pokud je hráč blízko okraje obrazovky (mimo mrtvou zónu)
@@ -1547,6 +1775,35 @@ while running:
     # Zkopírujeme jen tu část obří mapy, kterou kamera aktuálně vidí
     visible_rect = (surf_left, surf_top, width, height)
     screen.blit(maze_surface, (0, 0), visible_rect)
+
+    # --- Vykreslení dekorací ---
+    for deco in decorations:
+        dx = int((deco['x'] - camera_x) * zoom)
+        dy = int((deco['y'] - camera_y) * zoom)
+        if -100 < dx < width + 100 and -100 < dy < height + 100:
+            if deco['type'] == 'Crystal':
+                pulse = (math.sin(pygame.time.get_ticks() / 600.0 + deco['pulse_offset']) + 1) / 2
+                glow_size = int(32 * zoom * (1.0 + 0.3 * pulse))
+                
+                # Výběr textury podle podtypu
+                c_tex = textura_crystal_blue
+                if deco['subtype'] == 'Purple': c_tex = textura_crystal_blue_light
+                elif deco['subtype'] == 'Teal': c_tex = textura_crystal_blue_dark
+                
+                crystal_scaled = pygame.transform.scale(c_tex, (int(32 * zoom), int(32 * zoom)))
+                screen.blit(crystal_scaled, (dx, dy))
+                
+                # Záře krystalu (additive blend) s odpovídající barvou
+                glow_surf = pygame.Surface((glow_size * 2, glow_size * 2), pygame.SRCALPHA)
+                pygame.draw.circle(glow_surf, (*deco['color'], int(45 * pulse)), (glow_size, glow_size), glow_size)
+                screen.blit(glow_surf, (dx + int(16 * zoom) - glow_size, dy + int(16 * zoom) - glow_size), special_flags=pygame.BLEND_RGBA_ADD)
+            elif deco['type'] == 'Vine':
+                vine_scaled = pygame.transform.scale(textura_vine, (int(64 * zoom), int(64 * zoom)))
+                vine_rot = pygame.transform.rotate(vine_scaled, deco['angle'])
+                screen.blit(vine_rot, (dx, dy))
+            elif deco['type'] == 'Cobweb':
+                web_scaled = pygame.transform.scale(textura_cobweb, (int(64 * zoom), int(64 * zoom)))
+                screen.blit(web_scaled, (dx, dy))
 
     # --- Vykreslení léčivých platforem ---
     curr_glow_t = pygame.time.get_ticks() / 1000.0
@@ -1618,21 +1875,28 @@ while running:
     particles = active_particles
 
     # Nakreslení kostky (hráče)
+    # Efekt blikání při nesmrtelnosti
+    player_visible = True
+    if player_invincibility_timer > 0:
+        if (pygame.time.get_ticks() // 150) % 2 == 0:
+            player_visible = False
+            
     draw_x = int((x - camera_x) * zoom)
     draw_y = int((y - camera_y) * zoom)
     
-    if wobble_amp > 0:
-        wobble = math.sin(wobble_time) * 0.15 * wobble_amp
-        draw_w = int(player_draw_size * (1.0 - wobble))
-        draw_h = int(player_draw_size * (1.0 + wobble))
-        
-        scaled_textura = pygame.transform.scale(textura_hrac, (draw_w, draw_h))
-        offset_x = (player_draw_size - draw_w) // 2
-        offset_y = player_draw_size - draw_h
-        
-        screen.blit(scaled_textura, (draw_x + offset_x, draw_y + offset_y))
-    else:
-        screen.blit(textura_hrac, (draw_x, draw_y))
+    if player_visible:
+        if wobble_amp > 0:
+            wobble = math.sin(wobble_time) * 0.15 * wobble_amp
+            draw_w = int(player_draw_size * (1.0 - wobble))
+            draw_h = int(player_draw_size * (1.0 + wobble))
+            
+            scaled_textura = pygame.transform.scale(textura_hrac, (draw_w, draw_h))
+            offset_x = (player_draw_size - draw_w) // 2
+            offset_y = player_draw_size - draw_h
+            
+            screen.blit(scaled_textura, (draw_x + offset_x, draw_y + offset_y))
+        else:
+            screen.blit(textura_hrac, (draw_x, draw_y))
 
     # --- Vykreslení a animace zbraně v ruce ---
     if current_weapon and is_attacking:
@@ -1662,47 +1926,57 @@ while running:
         if attack_timer == attack_duration // 2:
             props = WEAPON_HITBOX_PROPS.get(current_weapon, {'range': 100, 'arc': 90, 'damage': 1})
             
-            # Seznam bodů na nepříteli, které budeme testovat pro zásah (střed + rohy)
-            enemy_hitbox_points = [
-                (enemy_x, enemy_y),                                   # Levý horní roh
-                (enemy_x + enemy_size, enemy_y),                      # Pravý horní roh
-                (enemy_x, enemy_y + enemy_size),                      # Levý dolní roh
-                (enemy_x + enemy_size, enemy_y + enemy_size),          # Pravý dolní roh
-                (enemy_x + enemy_size / 2, enemy_y + enemy_size / 2)   # Střed nepřítele
-            ]
-            
-            hit_registered = False
-            for pt_x, pt_y in enemy_hitbox_points:
-                dx_e = pt_x - player_center_world_x
-                dy_e = pt_y - player_center_world_y
-                dist_e = math.hypot(dx_e, dy_e)
-                angle_e = math.degrees(math.atan2(dy_e, dx_e))
+            for enemy in enemies:
+                # Přeskočíme mrtvé nepřátele, kteří čekají na respawn
+                if enemy.get('respawn_timer', 0) > 0:
+                    continue
+
+                enemy_center_world_x = enemy['x'] + enemy_size / 2
+                enemy_center_world_y = enemy['y'] + enemy_size / 2
+
+                # Seznam bodů na konkrétním nepříteli, které budeme testovat pro zásah
+                enemy_hitbox_points = [
+                    (enemy['x'], enemy['y']),
+                    (enemy['x'] + enemy_size, enemy['y']),
+                    (enemy['x'], enemy['y'] + enemy_size),
+                    (enemy['x'] + enemy_size, enemy['y'] + enemy_size),
+                    (enemy_center_world_x, enemy_center_world_y)
+                ]
                 
-                # Výpočet rozdílu úhlů (normalizováno na -180 až 180 stupňů)
-                angle_diff = (angle_e - angle_to_use + 180) % 360 - 180
+                hit_registered = False
+                for pt_x, pt_y in enemy_hitbox_points:
+                    dx_e = pt_x - player_center_world_x
+                    dy_e = pt_y - player_center_world_y
+                    dist_e = math.hypot(dx_e, dy_e)
+                    angle_e = math.degrees(math.atan2(dy_e, dx_e))
+                    
+                    # Výpočet rozdílu úhlů (normalizováno na -180 až 180 stupňů)
+                    angle_diff = (angle_e - angle_to_use + 180) % 360 - 180
+                    
+                    # Pokud je alespoň jeden bod v dosahu a úhlu, započítáme zásah tomuto nepříteli
+                    if dist_e <= props['range'] and abs(angle_diff) <= props['arc'] / 2:
+                        hit_registered = True
+                        break
                 
-                # Pokud je alespoň jeden bod v dosahu a úhlu, započítáme zásah
-                if dist_e <= props['range'] and abs(angle_diff) <= props['arc'] / 2:
-                    hit_registered = True
-                    break
-            
-            if hit_registered:
-                # Zásah nepřítele!
-                enemy_hp -= props['damage']
-                
-                # Vytvoření efektu krve/jisker na pozici nepřítele (67ultra-rychlé)
-                for _ in range(15):
-                    particles.append({
-                        'x': enemy_center_world_x, 'y': enemy_center_world_y,
-                        'radius': random.uniform(6, 12), 'life': 20,
-                        'color': (255, 100, 100), # Červená barva pro zásah
-                        'dx': random.uniform(-18, 18), 'dy': random.uniform(-18, 18)
-                    })
-                
-                # Pokud nepřítel zemře, respawnujeme ho (jednoduchý system)
-                if enemy_hp <= 0:
-                    enemy_x, enemy_y = start_enemy_x, start_enemy_y
-                    enemy_hp = max_enemy_hp
+                if hit_registered:
+                    # Zásah konkrétního nepřítele!
+                    enemy['hp'] -= props['damage']
+                    
+                    # Vytvoření efektu krve/jisker na pozici nepřítele
+                    for _ in range(15):
+                        particles.append({
+                            'x': enemy_center_world_x, 'y': enemy_center_world_y,
+                            'radius': random.uniform(6, 12), 'life': 20,
+                            'color': (255, 100, 100), # Červená barva pro zásah
+                            'dx': random.uniform(-18, 18), 'dy': random.uniform(-18, 18)
+                        })
+                    
+                    # Pokud nepřítel zemře, respawnujeme ho na jeho startovní pozici po prodlevě
+                    if enemy['hp'] <= 0:
+                        enemy['x'], enemy['y'] = enemy['start_x'], enemy['start_y']
+                        enemy['hp'] = max_enemy_hp
+                        enemy['is_dashing'] = False
+                        enemy['respawn_timer'] = 7200 # 2 minuty při 60 FPS (120 sekund)
 
         # Rotace a vykreslení zbraně
         final_angle = -(angle_to_use + 90 + anim_offset_angle)
@@ -1722,70 +1996,74 @@ while running:
         if attack_timer <= 0:
             is_attacking = False
 
-    # --- Zjištění viditelnosti pro enemy ---
-    vision_radius = 2000
+    # --- Vykreslení nepřátel ---
     player_center_world_x = x + size / 2
     player_center_world_y = y + size / 2
-    enemy_center_world_x = enemy_x + enemy_size / 2
-    enemy_center_world_y = enemy_y + enemy_size / 2
-
-    enemy_visible = False
-    dist_to_enemy = math.hypot(player_center_world_x - enemy_center_world_x, player_center_world_y - enemy_center_world_y)
-    
-    if dist_to_enemy <= vision_radius:
-        los_rect = pygame.Rect(min(player_center_world_x, enemy_center_world_x), 
-                               min(player_center_world_y, enemy_center_world_y), 
-                               abs(player_center_world_x - enemy_center_world_x), 
-                               abs(player_center_world_y - enemy_center_world_y))
-        los_rect.inflate_ip(100, 100)
-        los_walls = [w for w in walls if los_rect.colliderect(w)] + [w for w in locked_walls if los_rect.colliderect(w)]
-
-        check_points = [
-            (enemy_center_world_x, enemy_center_world_y),
-            (enemy_x, enemy_y),
-            (enemy_x + enemy_size, enemy_y),
-            (enemy_x, enemy_y + enemy_size),
-            (enemy_x + enemy_size, enemy_y + enemy_size)
-        ]
-        
-        for pt in check_points:
-            los_line = ((player_center_world_x, player_center_world_y), pt)
-            pt_visible = True
-            for wall in los_walls:
-                if wall.clipline(*los_line):
-                    pt_visible = False
-                    break
+    for enemy in enemies:
+        # Přeskočíme nepřátele, kteří čekají na respawn
+        if enemy.get('respawn_timer', 0) > 0:
+            continue
             
-            if pt_visible:
-                enemy_visible = True
-                break
+        # --- Zjištění viditelnosti pro konkrétního nepřítele ---
+        vision_radius = 2000
+        enemy_center_world_x = enemy['x'] + enemy_size / 2
+        enemy_center_world_y = enemy['y'] + enemy_size / 2
 
-    # Nakreslení enemy (moucha)
-    if enemy_visible:
-        # Výpočet úhlu k hráči pro rotaci mouchy
-        dx_e = player_center_world_x - enemy_center_world_x
-        dy_e = player_center_world_y - enemy_center_world_y
-        angle_e = math.degrees(math.atan2(dy_e, dx_e))
+        enemy_visible = False
+        dist_to_enemy = math.hypot(player_center_world_x - enemy_center_world_x, player_center_world_y - enemy_center_world_y)
         
-        # Přidání efektu bzučení (náhodné drobné posuny pro efekt mouchy)
-        buzz_t = pygame.time.get_ticks() * 0.02
-        buzz_x = math.sin(buzz_t) * 4
-        buzz_y = math.cos(buzz_t * 1.3) * 4
-        
-        enemy_draw_x = int((enemy_x + buzz_x - camera_x) * zoom)
-        enemy_draw_y = int((enemy_y + buzz_y - camera_y) * zoom)
-        
-        # Rotace textury (moucha se dívá na hráče)
-        # Pygame rotuje proti směru hodinových ručiček, proto použijeme záporný úhel
-        rotated_enemy = pygame.transform.rotate(textura_nepritel, -angle_e)
-        
-        # Vycentrování rotované textury na pozici nepřítele
-        enemy_rect = rotated_enemy.get_rect(center=(
-            enemy_draw_x + int(enemy_draw_size / 2),
-            enemy_draw_y + int(enemy_draw_size / 2)
-        ))
-        
-        screen.blit(rotated_enemy, enemy_rect)
+        if dist_to_enemy <= vision_radius:
+            los_rect = pygame.Rect(min(player_center_world_x, enemy_center_world_x), 
+                                   min(player_center_world_y, enemy_center_world_y), 
+                                   abs(player_center_world_x - enemy_center_world_x), 
+                                   abs(player_center_world_y - enemy_center_world_y))
+            los_rect.inflate_ip(100, 100)
+            los_walls = [w for w in walls if los_rect.colliderect(w)] + [w for w in locked_walls if los_rect.colliderect(w)]
+
+            check_points = [
+                (enemy_center_world_x, enemy_center_world_y),
+                (enemy['x'], enemy['y']),
+                (enemy['x'] + enemy_size, enemy['y']),
+                (enemy['x'], enemy['y'] + enemy_size),
+                (enemy['x'] + enemy_size, enemy['y'] + enemy_size)
+            ]
+            
+            for pt in check_points:
+                los_line = ((player_center_world_x, player_center_world_y), pt)
+                pt_visible = True
+                for wall in los_walls:
+                    if wall.clipline(*los_line):
+                        pt_visible = False
+                        break
+                
+                if pt_visible:
+                    enemy_visible = True
+                    break
+
+        if enemy_visible:
+            # Výpočet úhlu k hráči pro rotaci mouchy
+            dx_e = player_center_world_x - enemy_center_world_x
+            dy_e = player_center_world_y - enemy_center_world_y
+            angle_e = math.degrees(math.atan2(dy_e, dx_e))
+            
+            # Přidání efektu bzučení (každý nepřítel má svůj offset)
+            buzz_t = pygame.time.get_ticks() * 0.02 + enemy.get('buzz_offset', 0)
+            buzz_x = math.sin(buzz_t) * 4
+            buzz_y = math.cos(buzz_t * 1.3) * 4
+            
+            enemy_draw_x = int((enemy['x'] + buzz_x - camera_x) * zoom)
+            enemy_draw_y = int((enemy['y'] + buzz_y - camera_y) * zoom)
+            
+            # Rotace textury
+            rotated_enemy = pygame.transform.rotate(textura_nepritel, -angle_e)
+            
+            # Vycentrování rotované textury
+            enemy_rect = rotated_enemy.get_rect(center=(
+                enemy_draw_x + int(enemy_draw_size / 2),
+                enemy_draw_y + int(enemy_draw_size / 2)
+            ))
+            
+            screen.blit(rotated_enemy, enemy_rect)
 
 
     # --- FOG OF WAR (Mlha války / Zorné pole) ---
@@ -1859,14 +2137,16 @@ while running:
         )
         pygame.draw.rect(screen, (0, 255, 0), p_hit_rect, 2)
 
-        # Hitbox nepřítele (červený)
-        e_hit_rect = pygame.Rect(
-            int((enemy_x - camera_x) * zoom),
-            int((enemy_y - camera_y) * zoom),
-            int(enemy_size * zoom),
-            int(enemy_size * zoom)
-        )
-        pygame.draw.rect(screen, (255, 0, 0), e_hit_rect, 2)
+        # Hitboxy nepřátel (červené)
+        for enemy in enemies:
+            if enemy.get('respawn_timer', 0) == 0:
+                e_hit_rect = pygame.Rect(
+                    int((enemy['x'] - camera_x) * zoom),
+                    int((enemy['y'] - camera_y) * zoom),
+                    int(enemy_size * zoom),
+                    int(enemy_size * zoom)
+                )
+                pygame.draw.rect(screen, (255, 0, 0), e_hit_rect, 2)
 
         # Dosah sbírání předmětů (žlutý)
         for item in items_on_ground:
@@ -2018,6 +2298,32 @@ while running:
         switch_hint = weapon_name_font.render("[1] [2] [3]", True, (80, 120, 180))
         screen.blit(switch_hint, (70, weapon_hud_y + 36))
 
+    # --- HUD dashe (vedle HUDu zbraně) ---
+    if "Feather" in inventory:
+        dash_hud_x = 10 + (220 + 10 if (current_weapon and current_weapon != "None") else 0)
+        dash_hud_y = health_bg_y - 80
+        dash_size = 64
+        
+        # Pozadí slotu dashe
+        dash_bg = pygame.Surface((dash_size, dash_size), pygame.SRCALPHA)
+        dash_bg.fill((10, 20, 50, 200))
+        pygame.draw.rect(dash_bg, (80, 160, 255), (0, 0, dash_size, dash_size), 2, border_radius=10)
+        screen.blit(dash_bg, (dash_hud_x, dash_hud_y))
+        
+        # Ikona pírka
+        feather_icon_hud = pygame.transform.scale(textura_feather, (40, 40))
+        if player_dash_cooldown > 0:
+            feather_icon_hud.set_alpha(100) # Ztlumení při cooldownu
+        screen.blit(feather_icon_hud, (dash_hud_x + 12, dash_hud_y + 12))
+        
+        # Indikátor cooldownu (kruhový nebo bar)
+        if player_dash_cooldown > 0:
+            cooldown_pct = player_dash_cooldown / DASH_COOLDOWN_TIME
+            cd_height = int(dash_size * cooldown_pct)
+            cd_surf = pygame.Surface((dash_size, cd_height), pygame.SRCALPHA)
+            cd_surf.fill((255, 255, 255, 60))
+            screen.blit(cd_surf, (dash_hud_x, dash_hud_y + (dash_size - cd_height)))
+
     # --- Zobrazení notifikací o sebrání předmětů ---
     notif_y = height - 80 # Výchozí Y pozice v pravém dolním rohu
     active_notifications = []
@@ -2044,6 +2350,9 @@ while running:
             elif notif['type'] == "Scythe":
                 item_name = "Scythe"
                 notif_color = (160, 80, 255)
+            elif notif['type'] == "Feather":
+                item_name = "Feather"
+                notif_color = (240, 245, 255)
             else:
                 item_name = notif['type']
                 notif_color = (255, 255, 255)
@@ -2066,6 +2375,10 @@ while running:
                 screen.blit(icon_copy, (draw_x + 10, notif_y + (bg_height - 50) // 2))
             elif notif['type'] == "Glitter Slime Ball":
                 icon_copy = textura_glitter_ball.copy()
+                icon_copy.set_alpha(notif['alpha'])
+                screen.blit(icon_copy, (draw_x + 10, notif_y + (bg_height - 50) // 2))
+            elif notif['type'] == "Feather":
+                icon_copy = textura_feather_icon.copy()
                 icon_copy.set_alpha(notif['alpha'])
                 screen.blit(icon_copy, (draw_x + 10, notif_y + (bg_height - 50) // 2))
             elif notif['type'] in WEAPON_TEXTURES:
@@ -2099,6 +2412,24 @@ while running:
         brightness_overlay.fill((255, 255, 255))
         brightness_overlay.set_alpha(brightness) # Nastavení úrovně průhlednosti bílé plochy
         screen.blit(brightness_overlay, (0, 0))
+
+    # --- Atmosférické částice (motes) ---
+    for mote in atmospheric_motes:
+        mote['y'] -= mote['speed']
+        mote['wobble'] += 0.02
+        mote['x'] += math.sin(mote['wobble']) * 0.4
+        
+        # Resetování pozice motes
+        map_w = len(maze_layout[0]) * block_size
+        map_h = len(maze_layout) * block_size
+        if mote['y'] < 0: mote['y'] = map_h
+        if mote['x'] < 0: mote['x'] = map_w
+        if mote['x'] > map_w: mote['x'] = 0
+        
+        mx = int((mote['x'] - camera_x) * zoom)
+        my = int((mote['y'] - camera_y) * zoom)
+        if 0 < mx < width and 0 < my < height:
+            pygame.draw.circle(screen, (100, 200, 255, mote['alpha']), (mx, my), int(mote['radius'] * zoom))
 
     draw_custom_cursor(screen, mouse_x, mouse_y)
 

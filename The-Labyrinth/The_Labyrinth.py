@@ -125,6 +125,16 @@ DASH_COOLDOWN_TIME = 60 # Počet snímků mezi dashi (cca 0.75s při 120fps)
 DASH_DURATION = 5      # Trvání dashe v počtu snímků (zkráceno pro větší dynamiku)
 DASH_SPEED_MULT = 6.5   # Násobek rychlosti při dashi (zvýšeno pro větší rychlost)
 
+# Systém léčení hráče
+healing_charges = 0 # Počet nabití (0-3)
+MAX_HEALING_CHARGES = 3 # Maximální počet nabití
+healing_in_progress = False # Je nyní aktivní léčení
+healing_timer = 0 # Jak dlouho se hráč léčí
+healing_duration = 80 # Trvání léčení (80 snímků = 1 sekunda při 120fps)
+healing_speed_multiplier = 0.4 # Hráč se pohybuje 40% normální rychlostí během léčení
+healing_per_charge = 1 # Kolik životů se uzdraví za jedno nabití (při 6 životech)
+charge_per_enemy_hit = 0.3 # Kolik nabití se přidá za zásah nepřítele
+
 # Default values (Výchozí startovní souřadnice pro případ, že na mapě chybí P)
 start_x, start_y = 100, 100
 
@@ -173,6 +183,7 @@ def reset_game_world():
     global current_weapon, unlocked_weapons
     global player_dash_timer, player_dash_cooldown, player_is_dashing
     global start_x, start_y
+    global healing_charges, healing_in_progress, healing_timer
 
     # Reset parametrů
     player_health = 6
@@ -184,6 +195,9 @@ def reset_game_world():
     wobble_time = 0.0
     wobble_amp = 0.0
     particles = []
+    healing_charges = 0
+    healing_in_progress = False
+    healing_timer = 0
     
     walls.clear()
     locked_walls.clear()
@@ -1267,7 +1281,7 @@ while running:
 # Esc - Pause screen & Inventory screen ("B")
         # Kliknutí myší - Útok
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if current_weapon and not is_attacking:
+            if current_weapon and not is_attacking and not healing_in_progress:
                 is_attacking = True
                 attack_timer = attack_duration
                 # Zamknutí úhlu pro útok
@@ -1306,6 +1320,11 @@ while running:
             if event.key == pygame.K_b:
                 bg_copy = screen.copy()
                 show_inventory(screen, clock, bg_copy)
+            if event.key == pygame.K_f:
+                # Aktivace léčení (F klávesa)
+                if healing_charges > 0 and not healing_in_progress and player_health < 6:
+                    healing_in_progress = True
+                    healing_timer = healing_duration
             if event.key == pygame.K_SPACE:
                 # Mechanika sbírání předmětů
                 pickup_range = 150 # Dosah pro sebrání předmětu
@@ -1439,6 +1458,42 @@ while running:
             
         if player_dash_timer <= 0:
             player_is_dashing = False
+    elif healing_in_progress:
+        # Během léčení je hráč zpomalený
+        # Pohyb se stále vykonává, ale s menší rychlostí
+        if distance > 1.0:
+            current_speed = (8 if "Glitter Slime Ball" in inventory else 5) * healing_speed_multiplier
+            speed = min(current_speed, distance)
+            move_x = (dx / distance) * speed
+            move_y = (dy / distance) * speed
+        
+        # Léčící částice (bílé a zlaté)
+        for _ in range(3):
+            particles.append({
+                'x': x + size / 2 + random.uniform(-30, 30), 
+                'y': y + size / 2 + random.uniform(-30, 30),
+                'radius': random.uniform(3, 7), 'life': 15,
+                'color': (255, 215, 100) if random.random() > 0.5 else (255, 255, 255),  # Zlatá nebo bílá
+                'dx': random.uniform(-2, 2), 'dy': random.uniform(-3, -0.5)
+            })
+        
+        # Pokračování léčení
+        healing_timer -= 1
+        if healing_timer <= 0:
+            # Léčení skončilo - uzdravíme hráče
+            player_health = min(6, player_health + healing_per_charge)
+            healing_charges -= 1
+            healing_in_progress = False
+            
+            # Finální efekt léčení (větší výbuch částic)
+            for _ in range(20):
+                particles.append({
+                    'x': x + size / 2, 
+                    'y': y + size / 2,
+                    'radius': random.uniform(4, 10), 'life': 20,
+                    'color': (255, 215, 100),  # Zlatá
+                    'dx': random.uniform(-6, 6), 'dy': random.uniform(-6, 6)
+                })
     elif distance > 1.0: # Pokud nejsme přesně na myši, budeme se pohybovat
         # Vypočítáme aktuální rychlost (sprint pokud máme Glitter Slime Ball)
         current_speed = 8 if "Glitter Slime Ball" in inventory else 5
@@ -1962,6 +2017,9 @@ while running:
                     # Zásah konkrétního nepřítele!
                     enemy['hp'] -= props['damage']
                     
+                    # Přidání nabití léčícího systému za zasažení nepřítele
+                    healing_charges = min(MAX_HEALING_CHARGES, healing_charges + charge_per_enemy_hit)
+                    
                     # Vytvoření efektu krve/jisker na pozici nepřítele
                     for _ in range(15):
                         particles.append({
@@ -2323,6 +2381,59 @@ while running:
             cd_surf = pygame.Surface((dash_size, cd_height), pygame.SRCALPHA)
             cd_surf.fill((255, 255, 255, 60))
             screen.blit(cd_surf, (dash_hud_x, dash_hud_y + (dash_size - cd_height)))
+
+    # --- HUD léčení (vedle HUDu dashe) ---
+    healing_hud_x = 10 + (220 + 10 if (current_weapon and current_weapon != "None") else 0) + (64 + 10 if "Feather" in inventory else 0)
+    healing_hud_y = health_bg_y - 80
+    healing_slot_w = 200
+    healing_slot_h = 64
+    
+    # Pozadí slotu léčení
+    healing_bg = pygame.Surface((healing_slot_w, healing_slot_h), pygame.SRCALPHA)
+    # Změna barvy podle stavu nabití
+    if healing_charges > 0:
+        healing_bg.fill((50, 30, 20, 200))  # Teplá barva když jsou nabití
+        border_col = (255, 180, 80)  # Zlatá barva
+    else:
+        healing_bg.fill((20, 20, 30, 180))  # Tmavá barva když není nabití
+        border_col = (60, 70, 100)
+    pygame.draw.rect(healing_bg, border_col, (0, 0, healing_slot_w, healing_slot_h), 2, border_radius=10)
+    screen.blit(healing_bg, (healing_hud_x, healing_hud_y))
+    
+    # Text "HEAL" a klávesa F
+    heal_font = pygame.font.SysFont(None, 24)
+    heal_text = heal_font.render("HEAL", True, (255, 215, 100))
+    screen.blit(heal_text, (healing_hud_x + 10, healing_hud_y + 8))
+    key_text = heal_font.render("[F]", True, (200, 160, 80))
+    screen.blit(key_text, (healing_hud_x + 10, healing_hud_y + 32))
+    
+    # Zobrazení nabití (3 malé čtverečky)
+    charge_size = 12
+    charge_spacing = 5
+    charges_start_x = healing_hud_x + 110
+    for i in range(MAX_HEALING_CHARGES):
+        charge_rect = pygame.Rect(charges_start_x + i * (charge_size + charge_spacing), healing_hud_y + 20, charge_size, charge_size)
+        if i < healing_charges:
+            # Plné nabití - zlatá barva
+            pygame.draw.rect(screen, (255, 215, 100), charge_rect, border_radius=2)
+            pygame.draw.rect(screen, (255, 240, 150), charge_rect, 1, border_radius=2)
+        else:
+            # Prázdné nabití - tmavá barva
+            pygame.draw.rect(screen, (50, 40, 20), charge_rect, border_radius=2)
+            pygame.draw.rect(screen, (100, 80, 40), charge_rect, 1, border_radius=2)
+    
+    # Indikátor průběhu léčení (pokud je zrovna aktivní)
+    if healing_in_progress:
+        heal_progress = 1.0 - (healing_timer / healing_duration)
+        heal_bar_width = healing_slot_w - 20
+        heal_bar_height = 6
+        heal_bar_x = healing_hud_x + 10
+        heal_bar_y = healing_hud_y + healing_slot_h - 12
+        
+        # Pozadí baru
+        pygame.draw.rect(screen, (30, 20, 10), (heal_bar_x, heal_bar_y, heal_bar_width, heal_bar_height), border_radius=2)
+        # Vyplnění baru
+        pygame.draw.rect(screen, (255, 215, 100), (heal_bar_x, heal_bar_y, int(heal_bar_width * heal_progress), heal_bar_height), border_radius=2)
 
     # --- Zobrazení notifikací o sebrání předmětů ---
     notif_y = height - 80 # Výchozí Y pozice v pravém dolním rohu

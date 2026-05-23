@@ -2382,8 +2382,8 @@ while running:
             cd_surf.fill((255, 255, 255, 60))
             screen.blit(cd_surf, (dash_hud_x, dash_hud_y + (dash_size - cd_height)))
 
-    # --- HUD léčení (vedle HUDu dashe) ---
-    healing_hud_x = 10 + (220 + 10 if (current_weapon and current_weapon != "None") else 0) + (64 + 10 if "Feather" in inventory else 0)
+    # --- HUD léčení (pravá strana obrazovky) ---
+    healing_hud_x = width - 200 - 10
     healing_hud_y = health_bg_y - 80
     healing_slot_w = 200
     healing_slot_h = 64
@@ -2408,7 +2408,7 @@ while running:
     screen.blit(key_text, (healing_hud_x + 10, healing_hud_y + 32))
     
     # Zobrazení nabití (3 malé čtverečky)
-    charge_size = 12
+    charge_size = 18
     charge_spacing = 5
     charges_start_x = healing_hud_x + 110
     for i in range(MAX_HEALING_CHARGES):

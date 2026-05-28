@@ -114,7 +114,7 @@ player_invincibility_timer = 0 # Timer nesmrtelnosti po zásahu
 
 # Systém nepřátel
 enemies = []        # Seznam všech aktivních nepřátel
-max_enemy_hp = 6
+max_enemy_hp = 4
 
 # Systém dashe hráče
 player_dash_timer = 0
@@ -646,7 +646,7 @@ enemy_draw_size = math.ceil(enemy_size * zoom)
 
 # Nastavení textury pro podlahu a záložního řešení (když textura chybí)
 floor_fallback = pygame.Surface((256, 256))
-floor_fallback.fill((35, 109, 122)) # Tmavě modrozelená barva podlahy
+floor_fallback.fill((10, 40, 50)) # Tmavě modrozelená barva podlahy
 if os.path.exists(os.path.join(TEXTURES_DIR, "floor.png")):
     try:
         floor_img = pygame.image.load(os.path.join(TEXTURES_DIR, "floor.png")).convert_alpha()
@@ -1808,7 +1808,7 @@ while running:
         shake_intensity = max(0, shake_intensity - 0.8) # Postupné utlumení otřesu
 
     # Vyčištění obrazovky temnou barvou (pozadí mimo mapu)
-    screen.fill((20, 20, 20))
+    screen.fill((10, 10, 10))
     
     # Vykreslení podlahy s dlaždicováním (tiling) textury (aby se podlaha opakovala do nekonečna)
     bg_w, bg_h = floor_texture.get_size()

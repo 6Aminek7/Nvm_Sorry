@@ -231,10 +231,10 @@ def reset_game_world():
                 items_on_ground.append({'type': 'Key', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
             elif cell == "E":
                 ex, ey = rx + (block_size - enemy_size) // 2, ry + (block_size - enemy_size) // 2
-                enemies.append({'x': ex, 'y': ey, 'start_x': ex, 'start_y': ey, 'hp': max_enemy_hp, 'type': 'Fly', 'dash_timer': 0, 'dash_cooldown': 0, 'is_dashing': False, 'dash_x': 0, 'dash_y': 0, 'buzz_offset': random.uniform(0, 100), 'respawn_timer': 0})
+                enemies.append({'x': ex, 'y': ey, 'start_x': ex, 'start_y': ey, 'hp': max_enemy_hp, 'type': 'Fly', 'dash_timer': 0, 'dash_cooldown': 0, 'is_dashing': False, 'dash_x': 0, 'dash_y': 0, 'buzz_offset': random.uniform(0, 100), 'respawn_timer': 0, 'knockback_x': 0, 'knockback_y': 0})
             elif cell == "G":
                 ex, ey = rx + (block_size - enemy_size) // 2, ry + (block_size - enemy_size) // 2
-                enemies.append({'x': ex, 'y': ey, 'start_x': ex, 'start_y': ey, 'hp': max_enemy_hp, 'type': 'Seeker', 'respawn_timer': 0})
+                enemies.append({'x': ex, 'y': ey, 'start_x': ex, 'start_y': ey, 'hp': max_enemy_hp, 'type': 'Seeker', 'respawn_timer': 0, 'knockback_x': 0, 'knockback_y': 0})
             elif cell == "S":
                 items_on_ground.append({'type': 'Glitter Slime Ball', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
             elif cell == "D":
@@ -1779,6 +1779,31 @@ while running:
                         'color': (100, 200, 100), 'dx': random.uniform(-2, 2), 'dy': random.uniform(-2, 2)
                     })
 
+        # Aplikace knockbacku na nepřítele
+        knockback_x = enemy.get('knockback_x', 0)
+        knockback_y = enemy.get('knockback_y', 0)
+        
+        if knockback_x != 0 or knockback_y != 0:
+            # Aplikace knockbacku (Osa X)
+            new_enemy_x = enemy['x'] + knockback_x
+            enemy_rect_x = pygame.Rect(new_enemy_x, enemy['y'], enemy_size, enemy_size)
+            collision_enemy_x = enemy_rect_x.collidelist(walls) != -1 or enemy_rect_x.collidelist(locked_walls) != -1
+            
+            if not collision_enemy_x:
+                enemy['x'] = new_enemy_x
+            
+            # Aplikace knockbacku (Osa Y)
+            new_enemy_y = enemy['y'] + knockback_y
+            enemy_rect_y = pygame.Rect(enemy['x'], new_enemy_y, enemy_size, enemy_size)
+            collision_enemy_y = enemy_rect_y.collidelist(walls) != -1 or enemy_rect_y.collidelist(locked_walls) != -1
+            
+            if not collision_enemy_y:
+                enemy['y'] = new_enemy_y
+            
+            # Postupné zeslabování knockbacku (friction)
+            enemy['knockback_x'] *= 0.85
+            enemy['knockback_y'] *= 0.85
+        
         # Pohyb nepřítele a kolize se zdmi
         if move_x_enemy != 0 or move_y_enemy != 0:
             # Pohyb nepřítele a kolize se zdmi (Osa X)
@@ -2091,6 +2116,13 @@ while running:
                     
                     # Přidání nabití léčícího systému za zasažení nepřítele
                     healing_charges = min(MAX_HEALING_CHARGES, healing_charges + charge_per_enemy_hit)
+                    
+                    # Aplikace knockbacku - hýbeme nepřítelem směrem od hráče
+                    if (enemy['x'] - player_center_world_x) != 0 or (enemy['y'] - player_center_world_y) != 0:
+                        knockback_angle = math.atan2(enemy['y'] - player_center_world_y, enemy['x'] - player_center_world_x)
+                        knockback_strength = 15  # Síla knockbacku v pixelech
+                        enemy['knockback_x'] = math.cos(knockback_angle) * knockback_strength
+                        enemy['knockback_y'] = math.sin(knockback_angle) * knockback_strength
                     
                     # Vytvoření efektu krve/jisker na pozici nepřítele
                     for _ in range(15):

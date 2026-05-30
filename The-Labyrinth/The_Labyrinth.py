@@ -52,7 +52,7 @@ maze_layout = [
     "W WWW W W WWWWW W W W W R  K WE W       W WWWWW W WWWW W W W",
     "W   W W W       W W W W  H   PF   E     W       W W    W W W",
     "WWWWW W WWWWWWWWW W W W  W  S W         W W WWWWW W WWWW W W",
-    "W     W           W W W         C       W W W     W      W W",
+    "W     W           W W W   G     C       W W W     W      W W",
     "W WWWWWWWWWWWWWWWWW W WWWWWWWWWWWWWWWWWWW W W WWWWW WWWWWW W",
     "W                 W W                     W W W          W W",
     "W WWWWWWWWWWWWWWW W W WWWWWWWWWWWWWWWWWWW W W W WWWWWWWW W W",
@@ -231,7 +231,10 @@ def reset_game_world():
                 items_on_ground.append({'type': 'Key', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
             elif cell == "E":
                 ex, ey = rx + (block_size - enemy_size) // 2, ry + (block_size - enemy_size) // 2
-                enemies.append({'x': ex, 'y': ey, 'start_x': ex, 'start_y': ey, 'hp': max_enemy_hp, 'dash_timer': 0, 'dash_cooldown': 0, 'is_dashing': False, 'dash_x': 0, 'dash_y': 0, 'buzz_offset': random.uniform(0, 100), 'respawn_timer': 0})
+                enemies.append({'x': ex, 'y': ey, 'start_x': ex, 'start_y': ey, 'hp': max_enemy_hp, 'type': 'Fly', 'dash_timer': 0, 'dash_cooldown': 0, 'is_dashing': False, 'dash_x': 0, 'dash_y': 0, 'buzz_offset': random.uniform(0, 100), 'respawn_timer': 0})
+            elif cell == "G":
+                ex, ey = rx + (block_size - enemy_size) // 2, ry + (block_size - enemy_size) // 2
+                enemies.append({'x': ex, 'y': ey, 'start_x': ex, 'start_y': ey, 'hp': max_enemy_hp, 'type': 'Seeker', 'respawn_timer': 0})
             elif cell == "S":
                 items_on_ground.append({'type': 'Glitter Slime Ball', 'x': rx + block_size // 2, 'y': ry + block_size // 2})
             elif cell == "D":
@@ -575,6 +578,52 @@ def create_feather_texture(size):
     final_surf.blit(glow, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
         
     return final_surf
+
+def create_seeker_texture(size):
+    """Procedurálně vytvoří pixel-artový Seeker - agresivního nepřítele se špičkami."""
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    px = size // 10
+    
+    # Hlavní koule těla (grayish-blue)
+    body_color = (80, 120, 160)
+    pygame.draw.circle(surf, body_color, (size//2, size//2), int(3.5*px))
+    
+    # Vnitřní stínování
+    shadow_color = (50, 80, 0)
+    pygame.draw.circle(surf, shadow_color, (size//2 - px, size//2 - px), int(2.5*px))
+    
+    # Ostré špičky kolem těla (8 hrotů)
+    spike_color = (100, 140, 180)
+    spike_length = int(2*px)
+    center_x = size // 2
+    center_y = size // 2
+    base_radius = int(4*px)
+    
+    for i in range(8):
+        angle = (i * 45) * math.pi / 180
+        start_x = int(center_x + math.cos(angle) * base_radius)
+        start_y = int(center_y + math.sin(angle) * base_radius)
+        end_x = int(center_x + math.cos(angle) * (base_radius + spike_length))
+        end_y = int(center_y + math.sin(angle) * (base_radius + spike_length))
+        pygame.draw.line(surf, spike_color, (start_x, start_y), (end_x, end_y), 3)
+    
+    # Oči - svítivě modré
+    eye_color = (100, 200, 220)
+    eye_radius = px // 2 + 1
+    pygame.draw.circle(surf, eye_color, (int(center_x - 1.5*px), int(center_y - 0.5*px)), eye_radius)
+    pygame.draw.circle(surf, eye_color, (int(center_x + 1.5*px), int(center_y - 0.5*px)), eye_radius)
+    
+    # Blikající pupily
+    pupil_color = (50, 150, 200)
+    pygame.draw.circle(surf, pupil_color, (int(center_x - 1.5*px), int(center_y - 0.5*px)), max(1, eye_radius // 2))
+    pygame.draw.circle(surf, pupil_color, (int(center_x + 1.5*px), int(center_y - 0.5*px)), max(1, eye_radius // 2))
+    
+    # Modrý zásvit kolem Seekera
+    glow = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(glow, (100, 150, 200, 50), (size//2, size//2), size//2)
+    surf.blit(glow, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+    
+    return surf
 
 # Vlastnosti hitboxů zbraní (dosah, úhel rozptylu a poškození)
 WEAPON_HITBOX_PROPS = {
@@ -1187,6 +1236,7 @@ textura_zed = get_texture("wall.png", (100, 100, 100), (wall_draw_size, wall_dra
 textura_zamcena_zed = get_texture("locked_wall.png", (139, 69, 19), (wall_draw_size, wall_draw_size), pixelate_size=(64, 64))
 textura_hrac = get_texture("player.png", color, (player_draw_size, player_draw_size))
 textura_nepritel = create_bug_texture(enemy_draw_size)
+textura_seeker = create_seeker_texture(enemy_draw_size)
 textura_klic_icon = get_texture("key.png", (255, 215, 0), (50, 50))
 textura_slime_orb = get_texture("slime_orb.png", (0, 188, 212), (30, 30))
 textura_slime_orb_eyes = get_texture("slime_orb_eyes.png", (33, 150, 243), (50, 50))
@@ -1641,7 +1691,7 @@ while running:
         dy_enemy = y - enemy['y']
         distance_enemy = math.hypot(dx_enemy, dy_enemy) # Vzdálenost mezi hráčem a nepřítelem
 
-        # --- Kontrola Line of Sight (aby moucha neviděla skrz zdi) ---
+        # --- Kontrola Line of Sight (aby nepřítel neviděla skrz zdi) ---
         has_los = False
         if distance_enemy < 1000: # Maximální dosah zraku
             # Zjednodušený test viditelnosti (přímka mezi nepřítelem a hráčem)
@@ -1658,54 +1708,76 @@ while running:
                     has_los = False
                     break
         
-        # Logika Dash útoku (prudký výpad mouchy)
-        dash_range = 450 # Vzdálenost, při které moucha začne útok
-        dash_speed_mult = 5.5 # Kolikrát je dash rychlejší než normální pohyb
-        
         move_x_enemy = 0
         move_y_enemy = 0
+        enemy_type = enemy.get('type', 'Fly')
 
-        if not enemy['is_dashing']:
-            if enemy['dash_cooldown'] > 0:
-                enemy['dash_cooldown'] -= 1
-            elif has_los and distance_enemy < dash_range and distance_enemy > 0:
-                # Spuštění dashe - moucha se zaměří na hráče a vyrazí
-                enemy['is_dashing'] = True
-                enemy['dash_timer'] = 25 # Trvání dashe v počtu snímků
-                enemy['dash_x'] = (dx_enemy / distance_enemy) * enemy_speed * dash_speed_mult
-                enemy['dash_y'] = (dy_enemy / distance_enemy) * enemy_speed * dash_speed_mult
-                
-                # Efekt prachu/vzduchu při startu dashe
-                for _ in range(10):
-                    particles.append({
-                        'x': enemy['x'] + enemy_size / 2, 'y': enemy['y'] + enemy_size / 2,
-                        'radius': random.uniform(4, 8), 'life': 15,
-                        'color': (150, 200, 255), 'dx': random.uniform(-5, 5), 'dy': random.uniform(-5, 5)
-                    })
-
-        if enemy['is_dashing']:
-            move_x_enemy = enemy['dash_x']
-            move_y_enemy = enemy['dash_y']
-            enemy['dash_timer'] -= 1
+        # --- Logika pro Fly (moucha) - Dash útok ---
+        if enemy_type == 'Fly':
+            # Logika Dash útoku (prudký výpad mouchy)
+            dash_range = 450 # Vzdálenost, při které moucha začne útok
+            dash_speed_mult = 5.5 # Kolikrát je dash rychlejší než normální pohyb
             
-            # Zanechávání stop (trail) částic během dashe pro vizuální efekt rychlosti
-            if random.random() < 0.4:
-                particles.append({
-                    'x': enemy['x'] + enemy_size / 2 + random.uniform(-10, 10), 
-                    'y': enemy['y'] + enemy_size / 2 + random.uniform(-10, 10),
-                    'radius': random.uniform(3, 6), 'life': 10,
-                    'color': (100, 150, 255, 150), 'dx': 0, 'dy': 0
-                })
+            if not enemy.get('is_dashing', False):
+                if enemy.get('dash_cooldown', 0) > 0:
+                    enemy['dash_cooldown'] -= 1
+                elif has_los and distance_enemy < dash_range and distance_enemy > 0:
+                    # Spuštění dashe - moucha se zaměří na hráče a vyrazí
+                    enemy['is_dashing'] = True
+                    enemy['dash_timer'] = 25 # Trvání dashe v počtu snímků
+                    enemy['dash_x'] = (dx_enemy / distance_enemy) * enemy_speed * dash_speed_mult
+                    enemy['dash_y'] = (dy_enemy / distance_enemy) * enemy_speed * dash_speed_mult
+                    
+                    # Efekt prachu/vzduchu při startu dashe
+                    for _ in range(10):
+                        particles.append({
+                            'x': enemy['x'] + enemy_size / 2, 'y': enemy['y'] + enemy_size / 2,
+                            'radius': random.uniform(4, 8), 'life': 15,
+                            'color': (150, 200, 255), 'dx': random.uniform(-5, 5), 'dy': random.uniform(-5, 5)
+                        })
+
+            if enemy.get('is_dashing', False):
+                move_x_enemy = enemy['dash_x']
+                move_y_enemy = enemy['dash_y']
+                enemy['dash_timer'] -= 1
                 
-            if enemy['dash_timer'] <= 0:
-                enemy['is_dashing'] = False
-                enemy['dash_cooldown'] = 70 # Doba odpočinku po dashi
-        else:
-            # Klasické pronásledování (pomalý let k hráči) - pouze pokud vidí hráče
+                # Zanechávání stop (trail) částic během dashe pro vizuální efekt rychlosti
+                if random.random() < 0.4:
+                    particles.append({
+                        'x': enemy['x'] + enemy_size / 2 + random.uniform(-10, 10), 
+                        'y': enemy['y'] + enemy_size / 2 + random.uniform(-10, 10),
+                        'radius': random.uniform(3, 6), 'life': 10,
+                        'color': (100, 150, 255, 150), 'dx': 0, 'dy': 0
+                    })
+                    
+                if enemy.get('dash_timer', 0) <= 0:
+                    enemy['is_dashing'] = False
+                    enemy['dash_cooldown'] = 70 # Doba odpočinku po dashi
+            else:
+                # Klasické pronásledování (pomalý let k hráči) - pouze pokud vidí hráče
+                if has_los and distance_enemy > 0:
+                    speed_enemy = min(enemy_speed, distance_enemy)
+                    move_x_enemy = (dx_enemy / distance_enemy) * speed_enemy
+                    move_y_enemy = (dy_enemy / distance_enemy) * speed_enemy
+
+        # --- Logika pro Seeker (pronásledovatel) - Přímé pronásledování ---
+        elif enemy_type == 'Seeker':
+            seeker_speed = 5.5  # Vyšší rychlost než moucha
+            
             if has_los and distance_enemy > 0:
-                speed_enemy = min(enemy_speed, distance_enemy)
+                # Přímé pronásledování hráče když ho vidí
+                speed_enemy = min(seeker_speed, distance_enemy)
                 move_x_enemy = (dx_enemy / distance_enemy) * speed_enemy
                 move_y_enemy = (dy_enemy / distance_enemy) * speed_enemy
+                
+                # Přidání zelených částic kolem Seekera když pronásleduje (vizuální efekt)
+                if random.random() < 0.3:
+                    particles.append({
+                        'x': enemy['x'] + enemy_size / 2 + random.uniform(-5, 5), 
+                        'y': enemy['y'] + enemy_size / 2 + random.uniform(-5, 5),
+                        'radius': random.uniform(2, 5), 'life': 12,
+                        'color': (100, 200, 100), 'dx': random.uniform(-2, 2), 'dy': random.uniform(-2, 2)
+                    })
 
         # Pohyb nepřítele a kolize se zdmi
         if move_x_enemy != 0 or move_y_enemy != 0:
@@ -1716,7 +1788,7 @@ while running:
             
             if not collision_enemy_x:
                 enemy['x'] = new_enemy_x
-            elif enemy['is_dashing']:
+            elif enemy.get('is_dashing', False):
                 enemy['is_dashing'] = False # Přerušení dashe při nárazu do zdi
                 enemy['dash_cooldown'] = 40
 
@@ -1727,7 +1799,7 @@ while running:
             
             if not collision_enemy_y:
                 enemy['y'] = new_enemy_y
-            elif enemy['is_dashing']:
+            elif enemy.get('is_dashing', False):
                 enemy['is_dashing'] = False
                 enemy['dash_cooldown'] = 40
 
@@ -2099,21 +2171,36 @@ while running:
                     break
 
         if enemy_visible:
-            # Výpočet úhlu k hráči pro rotaci mouchy
+            # Výpočet úhlu k hráči pro rotaci nepřítele
             dx_e = player_center_world_x - enemy_center_world_x
             dy_e = player_center_world_y - enemy_center_world_y
             angle_e = math.degrees(math.atan2(dy_e, dx_e))
             
-            # Přidání efektu bzučení (každý nepřítel má svůj offset)
-            buzz_t = pygame.time.get_ticks() * 0.02 + enemy.get('buzz_offset', 0)
-            buzz_x = math.sin(buzz_t) * 4
-            buzz_y = math.cos(buzz_t * 1.3) * 4
+            enemy_type = enemy.get('type', 'Fly')
+            
+            # Efekt bzučení pouze pro mouchy (Fly)
+            if enemy_type == 'Fly':
+                buzz_t = pygame.time.get_ticks() * 0.02 + enemy.get('buzz_offset', 0)
+                buzz_x = math.sin(buzz_t) * 4
+                buzz_y = math.cos(buzz_t * 1.3) * 4
+            else:
+                # Seekers nemají bzučení - pohybují se hladce
+                buzz_x = 0
+                buzz_y = 0
             
             enemy_draw_x = int((enemy['x'] + buzz_x - camera_x) * zoom)
             enemy_draw_y = int((enemy['y'] + buzz_y - camera_y) * zoom)
             
+            # Výběr správné textury podle typu nepřítele
+            if enemy_type == 'Seeker':
+                enemy_texture = textura_seeker
+                rotation_angle = angle_e  # Seeker se otáčí více
+            else:  # Fly
+                enemy_texture = textura_nepritel
+                rotation_angle = -angle_e  # Fly má opačný smysl rotace
+            
             # Rotace textury
-            rotated_enemy = pygame.transform.rotate(textura_nepritel, -angle_e)
+            rotated_enemy = pygame.transform.rotate(enemy_texture, rotation_angle)
             
             # Vycentrování rotované textury
             enemy_rect = rotated_enemy.get_rect(center=(

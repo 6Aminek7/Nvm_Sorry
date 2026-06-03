@@ -126,8 +126,8 @@ DASH_DURATION = 5      # Trvání dashe v počtu snímků (zkráceno pro větš�
 DASH_SPEED_MULT = 6.5   # Násobek rychlosti při dashi (zvýšeno pro větší rychlost)
 
 # Systém léčení hráče
-healing_charges = 0 # Počet nabití (0-3)
-MAX_HEALING_CHARGES = 3 # Maximální počet nabití
+mana_charges = 0 # Počet mana nabití (sdílené pro heal a slime blast)
+MAX_MANA_CHARGES = 3 # Maximální počet nabití man
 healing_in_progress = False # Je nyní aktivní léčení
 healing_timer = 0 # Jak dlouho se hráč léčí
 healing_duration = 80 # Trvání léčení (80 snímků = 1 sekunda při 120fps)
@@ -139,8 +139,6 @@ charge_per_enemy_hit = 0.3 # Kolik nabití se přidá za zásah nepřítele
 breakable_walls = [] # Seznam rozbitelných zdí s jejich HP
 
 # Systém slime blast schopnosti
-slime_blast_charges = 0 # Počet nabití slime blast (0-3)
-MAX_SLIME_BLAST_CHARGES = 3 # Maximální počet nabití
 slime_blast_projectiles = [] # Seznam aktivních slime blast projektilů
 slime_blast_available = False # Má hráč schopnost slime blast
 SLIME_BLAST_RANGE = 600 # Dosah projektilu
@@ -154,6 +152,8 @@ HOLD_THRESHOLD = 20 # Počet snímků (cca 0.167s při 120fps) pro rozlišení m
 # Slime blast cooldown (milliseconds)
 SLIME_BLAST_COOLDOWN_MS = 1000
 slime_blast_last_cast = -10000
+# Secret easter egg flag (toggled by hidden top-right click)
+show_big_message = False
 
 # Default values (Výchozí startovní souřadnice pro případ, že na mapě chybí P)
 start_x, start_y = 100, 100
@@ -210,7 +210,7 @@ def reset_game_world():
     global current_weapon, unlocked_weapons
     global player_dash_timer, player_dash_cooldown, player_is_dashing
     global start_x, start_y
-    global healing_charges, healing_in_progress, healing_timer
+    global mana_charges, healing_in_progress, healing_timer
     global breakable_walls, slime_blast_projectiles, slime_blast_available
 
     # Reset parametrů
@@ -223,7 +223,7 @@ def reset_game_world():
     wobble_time = 0.0
     wobble_amp = 0.0
     particles = []
-    healing_charges = 0
+    mana_charges = 0
     healing_in_progress = False
     healing_timer = 0
     slime_blast_projectiles = []
@@ -352,7 +352,7 @@ def save_game(slot_id, slot_name=None):
         "camera_x": camera_x,            # Pozice kamery X
         "camera_y": camera_y,            # Pozice kamery Y
         "slime_blast_available": slime_blast_available,  # Má hráč slime blast
-        "slime_blast_charges": slime_blast_charges       # Nabití slime blast
+        "mana_charges": mana_charges       # Sdílené nabití (mana) pro slime blast a heal
     }
     
     # Cesta k souboru (uloženo ve složce "saves")
@@ -371,7 +371,7 @@ def load_game(slot_id):
     global x, y, enemies, player_health, inventory, items_on_ground
     global checkpoint_x, checkpoint_y, camera_x, camera_y, current_save_slot
     global current_weapon, unlocked_weapons
-    global slime_blast_available, slime_blast_charges
+    global slime_blast_available, mana_charges
     
     # Cesta k souboru uložené pozice
     path = os.path.join(os.path.dirname(__file__), "saves", f"save_{slot_id}.json")
@@ -397,7 +397,7 @@ def load_game(slot_id):
         camera_x = data["camera_x"]
         camera_y = data["camera_y"]
         slime_blast_available = data.get("slime_blast_available", True)
-        slime_blast_charges = data.get("slime_blast_charges", 0)
+        mana_charges = data.get("mana_charges", 0)
         
         # Nastavení aktuálně aktivního slotu
         current_save_slot = slot_id
@@ -1417,10 +1417,20 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        # If the big message overlay is showing, any click or key press dismisses it
+        if show_big_message:
+            if event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.KEYDOWN:
+                show_big_message = False
+                continue
 
-# Esc - Pause screen & Inventory screen ("B")
-        # Kliknutí myší - Útok
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        # Kliknutí myší - Útok (left click handled on MOUSEBUTTONUP for reliability)
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            # Top-right secret button hitbox
+            mx, my = event.pos
+            secret_rect = pygame.Rect(width - 34, 6, 28, 18)
+            if secret_rect.collidepoint(mx, my):
+                show_big_message = True
+                continue
             if current_weapon and not is_attacking and not healing_in_progress:
                 is_attacking = True
                 attack_timer = attack_duration
@@ -1479,7 +1489,7 @@ while running:
                         elif item['type'] == 'Slime Blast':
                             # Grant the player the slime blast ability (upgrade)
                             slime_blast_available = True
-                            slime_blast_charges = min(MAX_SLIME_BLAST_CHARGES, slime_blast_charges + 1)
+                            mana_charges = min(MAX_MANA_CHARGES, mana_charges + 1)
                         else:
                             inventory.append(item['type'])
                         pickup_notifications.append({'type': item['type'], 'time': pygame.time.get_ticks() / 1000.0, 'alpha': 255})
@@ -1583,22 +1593,24 @@ while running:
                                 dir_x = rel_x / dist
                                 dir_y = rel_y / dist
 
-                                # Vytvoření projektilu slime blast
-                                slime_blast_projectiles.append({
+                                # Spotřebuj jednu manu a vytvoř projektil
+                                if mana_charges > 0:
+                                    mana_charges -= 1
+                                    slime_blast_projectiles.append({
                                     'x': x + size / 2 + dir_x * 50,
                                     'y': y + size / 2 + dir_y * 50,
                                     'dx': dir_x * SLIME_BLAST_SPEED,
                                     'dy': dir_y * SLIME_BLAST_SPEED,
                                     'age': 0,
                                     'max_age': int(SLIME_BLAST_RANGE / SLIME_BLAST_SPEED)
-                                })
+                                    })
                         
                 else:
                     # Dlouhý hold - aktivace léčení
-                    if healing_charges > 0:
+                    if mana_charges > 0:
                         healing_in_progress = True
                         healing_timer = healing_duration
-                        healing_charges -= 1
+                        mana_charges -= 1
                 
                 f_key_pressed = False
                 f_key_press_time = 0
@@ -1666,7 +1678,7 @@ while running:
         if healing_timer <= 0:
             # Léčení skončilo - uzdravíme hráče
             player_health = min(6, player_health + healing_per_charge)
-            healing_charges -= 1
+            mana_charges -= 1
             healing_in_progress = False
             
             # Finální efekt léčení (větší výbuch částic)
@@ -2281,7 +2293,7 @@ while running:
                     enemy['hp'] -= props['damage']
                     
                     # Přidání nabití léčícího systému za zasažení nepřítele
-                    healing_charges = min(MAX_HEALING_CHARGES, healing_charges + charge_per_enemy_hit)
+                    mana_charges = min(MAX_MANA_CHARGES, mana_charges + charge_per_enemy_hit)
                     
                     # Aplikace knockbacku - hýbeme nepřítelem směrem od hráče
                     if (enemy['x'] - player_center_world_x) != 0 or (enemy['y'] - player_center_world_y) != 0:
@@ -2720,29 +2732,61 @@ while running:
             cd_surf.fill((255, 255, 255, 60))
             screen.blit(cd_surf, (dash_hud_x, dash_hud_y + (dash_size - cd_height)))
 
-    # --- Zobrazení nabití léčení (malé tečky vedle dashe) ---
+    # --- Zobrazení nabití many (top-left) ---
     try:
-        heal_display_x = dash_hud_x + dash_size + 12 if 'Feather' in inventory else 10
-        heal_display_y = health_bg_y - 62
+        mana_x = 10
+        mana_y = 10
         heal_font = pygame.font.SysFont(None, 18)
-        heal_label = heal_font.render("HEAL", True, (100, 180, 255))
-        screen.blit(heal_label, (heal_display_x, heal_display_y))
+        mana_label = heal_font.render("MANA", True, (100, 180, 255))
+        screen.blit(mana_label, (mana_x, mana_y))
         charge_radius = 6
-        charges_x = heal_display_x + 40
-        charges_y = heal_display_y + 8
-        for i in range(MAX_HEALING_CHARGES):
+        charges_x = mana_x + 50
+        charges_y = mana_y + 8
+        for i in range(MAX_MANA_CHARGES):
             hx = charges_x + i * (charge_radius * 3)
             hy = charges_y
-            if healing_charges > i:
-                fill_col = (100, 255, 150)
+            if mana_charges > i:
+                fill_col = (100, 180, 255)
             else:
-                fill_col = (60, 80, 100)
+                fill_col = (30, 40, 60)
             pygame.draw.circle(screen, fill_col, (hx, hy), charge_radius)
             pygame.draw.circle(screen, (100, 180, 255), (hx, hy), charge_radius, 1)
     except Exception:
         pass
     
     # --- Zobrazení notifikací o sebrání předmětů ---
+    # --- Secret easter egg display (top-right) ---
+    try:
+        # Draw a small visible button in the top-right corner
+        btn_w, btn_h = 28, 18
+        btn_x = width - btn_w - 6
+        btn_y = 6
+        btn_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+        btn_surf = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
+        btn_color = (100, 180, 255) if show_big_message else (60, 90, 130)
+        btn_surf.fill(btn_color)
+        pygame.draw.rect(btn_surf, (200, 220, 255), (0, 0, btn_w, btn_h), 1, border_radius=3)
+        screen.blit(btn_surf, (btn_x, btn_y))
+
+        if show_big_message:
+            # Full-screen blessing message
+            try:
+                overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+                overlay.fill((0, 0, 0, 200))
+                big_font = pygame.font.SysFont(None, 64)
+                msg = "Congrats you just got blessed by Big Yahu."
+                text_surf = big_font.render(msg, True, (255, 230, 150))
+                tw, th = text_surf.get_size()
+                overlay.blit(text_surf, ((width - tw) // 2, (height - th) // 2))
+                screen.blit(overlay, (0, 0))
+                # small hint to dismiss
+                hint = font.render("Click or press any key to dismiss", True, (200,200,200))
+                hw, hh = hint.get_size()
+                screen.blit(hint, ((width - hw) // 2, (height - th) // 2 + th + 16))
+            except Exception:
+                pass
+    except Exception:
+        pass
     notif_y = height - 80 # Výchozí Y pozice v pravém dolním rohu
     active_notifications = []
     

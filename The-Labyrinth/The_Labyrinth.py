@@ -144,6 +144,7 @@ slime_blast_available = False # Má hráč schopnost slime blast
 SLIME_BLAST_RANGE = 600 # Dosah projektilu
 SLIME_BLAST_SPEED = 12 # Rychlost projektilu
 SLIME_BLAST_SIZE = 20 # Velikost projektilu
+SLIME_BLAST_DAMAGE = 1000 # Damage dealt to enemies by slime blast
 
 # Systém pro detekci držení F klávesy
 f_key_pressed = False # Zda je F klávesa stisknuta
@@ -1293,6 +1294,50 @@ def show_inventory(screen, clock, bg_copy):
                 label_surf = item_font.render(label, True, label_color)
                 screen.blit(label_surf, (weapons_x + 60, row_y + 12))
         else:
+            # Nejprve zkontrolujeme kolizi s nepřáteli (projektil by měl zasáhnout i nepřátele)
+            hit_enemy = False
+            for enemy in enemies:
+                if enemy.get('respawn_timer', 0) > 0:
+                    continue
+                enemy_rect = pygame.Rect(enemy['x'], enemy['y'], enemy_size, enemy_size)
+                if proj_rect.colliderect(enemy_rect):
+                    # Aplikujeme poškození
+                    dmg = proj.get('damage', SLIME_BLAST_DAMAGE)
+                    enemy['hp'] -= dmg
+
+                    # Vytvoření modrých částic při zásahu nepřítele
+                    for _ in range(14):
+                        particles.append({
+                            'x': proj['x'], 'y': proj['y'],
+                            'radius': random.uniform(3, 9), 'life': 18,
+                            'color': (100, 180, 255),
+                            'dx': random.uniform(-16, 16), 'dy': random.uniform(-16, 16)
+                        })
+
+                    # Knockback od směru projektilu
+                    try:
+                        kb_angle = math.atan2((enemy['y'] + enemy_size/2) - proj['y'], (enemy['x'] + enemy_size/2) - proj['x'])
+                        kb_strength = 12
+                        enemy['knockback_x'] = math.cos(kb_angle) * kb_strength
+                        enemy['knockback_y'] = math.sin(kb_angle) * kb_strength
+                    except Exception:
+                        pass
+
+                    # Pokud nepřítel zemře, resetujeme ho podobně jako u zbraní
+                    if enemy['hp'] <= 0:
+                        enemy['x'], enemy['y'] = enemy['start_x'], enemy['start_y']
+                        enemy['hp'] = max_enemy_hp
+                        enemy['is_dashing'] = False
+                        enemy['respawn_timer'] = 7200
+
+                    # Odstraníme projektil a ukončíme kontrolu
+                    if proj in slime_blast_projectiles:
+                        slime_blast_projectiles.remove(proj)
+                    hit_enemy = True
+                    break
+
+            if hit_enemy:
+                continue
             no_w = item_font.render("No weapons found...", True, (100, 110, 130))
             screen.blit(no_w, (weapons_x, weapons_start_y + 65))
             
@@ -1596,14 +1641,24 @@ while running:
                                 # Spotřebuj jednu manu a vytvoř projektil
                                 if mana_charges > 0:
                                     mana_charges -= 1
-                                    slime_blast_projectiles.append({
-                                    'x': x + size / 2 + dir_x * 50,
-                                    'y': y + size / 2 + dir_y * 50,
-                                    'dx': dir_x * SLIME_BLAST_SPEED,
-                                    'dy': dir_y * SLIME_BLAST_SPEED,
-                                    'age': 0,
-                                    'max_age': int(SLIME_BLAST_RANGE / SLIME_BLAST_SPEED)
-                                    })
+                                    proj = {
+                                        'x': x + size / 2 + dir_x * 50,
+                                        'y': y + size / 2 + dir_y * 50,
+                                        'dx': dir_x * SLIME_BLAST_SPEED,
+                                        'dy': dir_y * SLIME_BLAST_SPEED,
+                                        'age': 0,
+                                        'max_age': int(SLIME_BLAST_RANGE / SLIME_BLAST_SPEED),
+                                        'damage': SLIME_BLAST_DAMAGE
+                                    }
+                                    slime_blast_projectiles.append(proj)
+                                    # Small blue burst when casting
+                                    for _ in range(8):
+                                        particles.append({
+                                            'x': proj['x'], 'y': proj['y'],
+                                            'radius': random.uniform(3, 7), 'life': 18,
+                                            'color': (100, 180, 255),
+                                            'dx': random.uniform(-6, 6), 'dy': random.uniform(-6, 6)
+                                        })
                         
                 else:
                     # Dlouhý hold - aktivace léčení
